@@ -7,7 +7,9 @@ import { logger } from "./utils/logger.js";
 const relayHandler = new ConversationRelayHandler();
 
 const server = http.createServer((req, res) => {
-  if (req.url === "/health") {
+  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+
+  if (url.pathname === "/ai/health") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({
       status: "ok",
