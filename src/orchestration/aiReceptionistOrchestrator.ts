@@ -94,7 +94,7 @@ export class AiReceptionistOrchestrator {
       return result;
     }
 
-    const toolResult = await this.toolRegistry.execute(session, result.toolRequest);
+    const toolResult = await this.tryExecuteTool(session, result.toolRequest);
     session.lastToolResults[result.toolRequest.name] = toolResult;
     this.sessions.append(session, {
       speaker: "tool",
@@ -105,6 +105,24 @@ export class AiReceptionistOrchestrator {
     });
 
     return this.modelClient.continueWithToolResult(session, toolResult);
+  }
+
+  private async tryExecuteTool(session: CallSession, toolRequest: NonNullable<ModelTurnResult["toolRequest"]>) {
+    try {
+      return await this.toolRegistry.execute(session, toolRequest);
+    } catch (error) {
+      logger.warn("Unable to execute AI tool; continuing with failure result", {
+        callSid: session.callSid,
+        officeCode: session.officeCode,
+        toolName: toolRequest.name,
+        error: String(error)
+      });
+      return {
+        name: toolRequest.name,
+        ok: false,
+        error: "The office system is unavailable for that request right now. Offer to send a message to the office staff."
+      };
+    }
   }
 
   private async trySaveTranscriptTurn(input: {
