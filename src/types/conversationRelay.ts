@@ -56,7 +56,7 @@ export interface ConversationRelayTextResponse {
 
 export interface ConversationRelayEndResponse {
   type: "end";
-  handoffData?: Record<string, unknown>;
+  handoffData?: string;
 }
 
 export type ConversationRelayResponse = ConversationRelayTextResponse | ConversationRelayEndResponse;

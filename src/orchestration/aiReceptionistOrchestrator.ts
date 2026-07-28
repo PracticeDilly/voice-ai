@@ -4,6 +4,12 @@ import { CallSession, CallSessionStore } from "../sessions/callSession.js";
 import { ToolRegistry } from "../tools/toolRegistry.js";
 import { logger } from "../utils/logger.js";
 
+export interface ConversationTurnOutcome {
+  reply: string;
+  shouldEndSession: boolean;
+  handoffData?: Record<string, unknown>;
+}
+
 export class AiReceptionistOrchestrator {
   private readonly springBootClient = new SpringBootClient();
   private readonly toolRegistry = new ToolRegistry(this.springBootClient);
@@ -32,7 +38,7 @@ export class AiReceptionistOrchestrator {
     return session;
   }
 
-  async handleCallerText(session: CallSession, callerText: string): Promise<string> {
+  async handleCallerText(session: CallSession, callerText: string): Promise<ConversationTurnOutcome> {
     this.sessions.append(session, {
       speaker: "patient",
       text: callerText
@@ -47,6 +53,10 @@ export class AiReceptionistOrchestrator {
     const firstResult = await this.modelClient.nextTurn(session, callerText);
     const finalResult = await this.resolveModelResult(session, firstResult);
     const reply = finalResult.reply ?? "I am sorry, I could not complete that request.";
+    const transferToStaff = firstResult.toolRequest?.name === "TRANSFER_TO_STAFF"
+      || finalResult.toolRequest?.name === "TRANSFER_TO_STAFF"
+      || finalResult.intent === "TRANSFER_TO_STAFF"
+      || finalResult.shouldEndCall === true;
 
     if (finalResult.intent) {
       session.currentIntent = finalResult.intent;
@@ -75,7 +85,20 @@ export class AiReceptionistOrchestrator {
       }
     });
 
-    return reply;
+    return {
+      reply,
+      shouldEndSession: transferToStaff,
+      handoffData: transferToStaff ? {
+        reasonCode: "live-agent-handoff",
+        reason: "Caller requested live office staff or AI could not safely complete the request.",
+        officeCode: session.officeCode,
+        callSid: session.callSid,
+        fromNumber: session.fromNumber,
+        toNumber: session.toNumber,
+        intent: finalResult.intent,
+        collectedFields: session.collectedFields
+      } : undefined
+    };
   }
 
   async completeSession(session: CallSession): Promise<void> {

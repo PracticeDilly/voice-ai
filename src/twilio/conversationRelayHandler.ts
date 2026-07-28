@@ -49,12 +49,20 @@ export class ConversationRelayHandler {
           if (!callerText) {
             return;
           }
-          const reply = await this.orchestrator.handleCallerText(session, callerText);
+          const outcome = await this.orchestrator.handleCallerText(session, callerText);
           this.send(ws, {
             type: "text",
-            token: reply,
+            token: outcome.reply,
             last: true
           });
+          if (outcome.shouldEndSession) {
+            windowlessDelay(() => {
+              this.send(ws, {
+                type: "end",
+                handoffData: JSON.stringify(outcome.handoffData ?? {})
+              });
+            }, 1200);
+          }
           return;
         }
 
@@ -141,4 +149,8 @@ export class ConversationRelayHandler {
     }
     ws.send(JSON.stringify(response));
   }
+}
+
+function windowlessDelay(callback: () => void, milliseconds: number): void {
+  setTimeout(callback, milliseconds);
 }
