@@ -2,6 +2,7 @@ import { ModelClient, ModelTurnResult } from "../ai/modelClient.js";
 import { SpringBootClient } from "../clients/springBootClient.js";
 import { CallSession, CallSessionStore } from "../sessions/callSession.js";
 import { ToolRegistry } from "../tools/toolRegistry.js";
+import { logger } from "../utils/logger.js";
 
 export class AiReceptionistOrchestrator {
   private readonly springBootClient = new SpringBootClient();
@@ -36,7 +37,7 @@ export class AiReceptionistOrchestrator {
       speaker: "patient",
       text: callerText
     });
-    await this.springBootClient.saveTranscriptTurn({
+    await this.trySaveTranscriptTurn({
       callSid: session.callSid,
       officeCode: session.officeCode,
       speaker: "patient",
@@ -64,7 +65,7 @@ export class AiReceptionistOrchestrator {
         intent: finalResult.intent
       }
     });
-    await this.springBootClient.saveTranscriptTurn({
+    await this.trySaveTranscriptTurn({
       callSid: session.callSid,
       officeCode: session.officeCode,
       speaker: "assistant",
@@ -78,7 +79,7 @@ export class AiReceptionistOrchestrator {
   }
 
   async completeSession(session: CallSession): Promise<void> {
-    await this.springBootClient.completeCall({
+    await this.tryCompleteCall({
       callSid: session.callSid,
       officeCode: session.officeCode,
       transcript: session.transcript,
@@ -104,5 +105,42 @@ export class AiReceptionistOrchestrator {
     });
 
     return this.modelClient.continueWithToolResult(session, toolResult);
+  }
+
+  private async trySaveTranscriptTurn(input: {
+    callSid: string;
+    officeCode: string;
+    speaker: string;
+    text: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<void> {
+    try {
+      await this.springBootClient.saveTranscriptTurn(input);
+    } catch (error) {
+      logger.warn("Unable to save AI transcript turn; continuing conversation", {
+        callSid: input.callSid,
+        officeCode: input.officeCode,
+        speaker: input.speaker,
+        error: String(error)
+      });
+    }
+  }
+
+  private async tryCompleteCall(input: {
+    callSid: string;
+    officeCode: string;
+    transcript: unknown[];
+    collectedFields: Record<string, unknown>;
+    lastToolResults: Record<string, unknown>;
+  }): Promise<void> {
+    try {
+      await this.springBootClient.completeCall(input);
+    } catch (error) {
+      logger.warn("Unable to complete AI call record; closing in-memory session", {
+        callSid: input.callSid,
+        officeCode: input.officeCode,
+        error: String(error)
+      });
+    }
   }
 }
