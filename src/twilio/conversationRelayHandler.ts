@@ -23,11 +23,13 @@ export class ConversationRelayHandler {
         if (this.isSetupMessage(message)) {
           const session = await this.handleSetup(message);
           callSid = session.callSid;
-          this.send(ws, {
-            type: "text",
-            token: `Thank you for calling. How can I help you today?`,
-            last: true
-          });
+          if (message.customParameters?.welcomeGreetingProvided !== "true") {
+            this.send(ws, {
+              type: "text",
+              token: session.officeContext?.aiGreeting ?? "Thank you for calling. How can I help you today?",
+              last: true
+            });
+          }
           return;
         }
 
@@ -101,23 +103,23 @@ export class ConversationRelayHandler {
 
   private async handleSetup(message: ConversationRelaySetupMessage) {
     const callSid = message.callSid ?? message.customParameters?.callSid;
-    const officeId = message.customParameters?.officeId;
+    const officeCode = message.customParameters?.officeCode ?? message.customParameters?.officeId;
 
     if (!callSid) {
       throw new Error("Conversation Relay setup missing callSid");
     }
-    if (!officeId) {
-      throw new Error("Conversation Relay setup missing officeId custom parameter");
+    if (!officeCode) {
+      throw new Error("Conversation Relay setup missing officeCode custom parameter");
     }
 
     const session = await this.orchestrator.initializeSession({
       callSid,
-      officeId,
+      officeCode,
       accountSid: message.accountSid,
       fromNumber: message.from ?? message.customParameters?.fromNumber,
       toNumber: message.to ?? message.customParameters?.toNumber
     });
-    logger.info("Conversation Relay session initialized", { callSid, officeId });
+    logger.info("Conversation Relay session initialized", { callSid, officeCode });
     return session;
   }
 

@@ -14,16 +14,16 @@ export interface ToolResult {
 }
 
 export class SpringBootClient {
-  async getOfficeContext(officeId: string, callSid: string): Promise<OfficeContext> {
-    return this.request<OfficeContext>(`/voice/ai/offices/${encodeURIComponent(officeId)}/context?callSid=${encodeURIComponent(callSid)}`);
+  async getOfficeContext(officeCode: string, callSid: string): Promise<OfficeContext> {
+    return this.request<OfficeContext>(`/voice/ai/offices/${encodeURIComponent(officeCode)}/context?callSid=${encodeURIComponent(callSid)}`);
   }
 
-  async executeTool(callSid: string, officeId: string, tool: ToolRequest): Promise<ToolResult> {
+  async executeTool(callSid: string, officeCode: string, tool: ToolRequest): Promise<ToolResult> {
     return this.request<ToolResult>("/voice/ai/tools/execute", {
       method: "POST",
       body: JSON.stringify({
         callSid,
-        officeId,
+        officeCode,
         toolName: tool.name,
         arguments: tool.arguments
       })
@@ -32,7 +32,7 @@ export class SpringBootClient {
 
   async saveTranscriptTurn(input: {
     callSid: string;
-    officeId: string;
+    officeCode: string;
     speaker: string;
     text: string;
     metadata?: Record<string, unknown>;
@@ -45,7 +45,7 @@ export class SpringBootClient {
 
   async completeCall(input: {
     callSid: string;
-    officeId: string;
+    officeCode: string;
     transcript: unknown[];
     collectedFields: Record<string, unknown>;
     lastToolResults: Record<string, unknown>;

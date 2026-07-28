@@ -8,12 +8,15 @@ export interface TranscriptTurn {
 }
 
 export interface OfficeContext {
-  officeId: string;
+  officeCode: string;
   officeName?: string;
+  phoneNumber?: string;
   timezone: string;
   aiMode?: string;
+  aiGreeting?: string;
   businessHoursSummary?: string;
-  allowedActions: string[];
+  supportedIntents?: string[];
+  allowedActions?: string[];
   handoffPolicy?: string;
   emergencyMessage?: string;
   facts?: string[];
@@ -22,7 +25,7 @@ export interface OfficeContext {
 export interface CallSession {
   callSid: string;
   accountSid?: string;
-  officeId: string;
+  officeCode: string;
   fromNumber?: string;
   toNumber?: string;
   startedAt: string;
@@ -45,7 +48,7 @@ export class CallSessionStore {
   create(input: {
     callSid: string;
     accountSid?: string;
-    officeId: string;
+    officeCode: string;
     fromNumber?: string;
     toNumber?: string;
   }): CallSession {
@@ -53,7 +56,7 @@ export class CallSessionStore {
     const session: CallSession = {
       callSid: input.callSid,
       accountSid: input.accountSid,
-      officeId: input.officeId,
+      officeCode: input.officeCode,
       fromNumber: input.fromNumber,
       toNumber: input.toNumber,
       startedAt: now,

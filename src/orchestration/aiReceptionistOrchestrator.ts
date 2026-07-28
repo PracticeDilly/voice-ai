@@ -13,17 +13,17 @@ export class AiReceptionistOrchestrator {
   async initializeSession(input: {
     callSid: string;
     accountSid?: string;
-    officeId: string;
+    officeCode: string;
     fromNumber?: string;
     toNumber?: string;
   }): Promise<CallSession> {
     const session = this.sessions.create(input);
-    session.officeContext = await this.springBootClient.getOfficeContext(input.officeId, input.callSid);
+    session.officeContext = await this.springBootClient.getOfficeContext(input.officeCode, input.callSid);
     this.sessions.append(session, {
       speaker: "system",
       text: "AI receptionist session initialized.",
       metadata: {
-        officeId: input.officeId,
+        officeCode: input.officeCode,
         fromNumber: input.fromNumber,
         toNumber: input.toNumber
       }
@@ -38,7 +38,7 @@ export class AiReceptionistOrchestrator {
     });
     await this.springBootClient.saveTranscriptTurn({
       callSid: session.callSid,
-      officeId: session.officeId,
+      officeCode: session.officeCode,
       speaker: "patient",
       text: callerText
     });
@@ -66,7 +66,7 @@ export class AiReceptionistOrchestrator {
     });
     await this.springBootClient.saveTranscriptTurn({
       callSid: session.callSid,
-      officeId: session.officeId,
+      officeCode: session.officeCode,
       speaker: "assistant",
       text: reply,
       metadata: {
@@ -80,7 +80,7 @@ export class AiReceptionistOrchestrator {
   async completeSession(session: CallSession): Promise<void> {
     await this.springBootClient.completeCall({
       callSid: session.callSid,
-      officeId: session.officeId,
+      officeCode: session.officeCode,
       transcript: session.transcript,
       collectedFields: session.collectedFields,
       lastToolResults: session.lastToolResults

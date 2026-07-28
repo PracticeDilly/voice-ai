@@ -27,6 +27,6 @@ export class ToolRegistry {
       };
     }
 
-    return this.springBootClient.executeTool(session.callSid, session.officeId, tool);
+    return this.springBootClient.executeTool(session.callSid, session.officeCode, tool);
   }
 }
