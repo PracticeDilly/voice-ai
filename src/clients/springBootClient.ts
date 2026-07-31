@@ -13,6 +13,13 @@ export interface ToolResult {
   error?: string;
 }
 
+export interface CallSummary {
+  summaryText: string;
+  primaryIntent?: string;
+  staffFollowupRequired?: boolean;
+  priority?: string;
+}
+
 export class SpringBootClient {
   async getOfficeContext(officeCode: string, callSid: string): Promise<OfficeContext> {
     return this.request<OfficeContext>(`/voice/ai/offices/${encodeURIComponent(officeCode)}/context?callSid=${encodeURIComponent(callSid)}`);
@@ -49,10 +56,21 @@ export class SpringBootClient {
     transcript: unknown[];
     collectedFields: Record<string, unknown>;
     lastToolResults: Record<string, unknown>;
+    summary?: CallSummary;
   }): Promise<void> {
     await this.request<void>("/voice/ai/calls/complete", {
       method: "POST",
-      body: JSON.stringify(input)
+      body: JSON.stringify({
+        callSid: input.callSid,
+        officeCode: input.officeCode,
+        transcript: input.transcript,
+        collectedFields: input.collectedFields,
+        lastToolResults: input.lastToolResults,
+        summaryText: input.summary?.summaryText,
+        primaryIntent: input.summary?.primaryIntent,
+        staffFollowupRequired: input.summary?.staffFollowupRequired,
+        priority: input.summary?.priority
+      })
     });
   }
 

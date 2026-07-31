@@ -102,12 +102,14 @@ export class AiReceptionistOrchestrator {
   }
 
   async completeSession(session: CallSession): Promise<void> {
+    const summary = await this.trySummarizeCall(session);
     await this.tryCompleteCall({
       callSid: session.callSid,
       officeCode: session.officeCode,
       transcript: session.transcript,
       collectedFields: session.collectedFields,
-      lastToolResults: session.lastToolResults
+      lastToolResults: session.lastToolResults,
+      summary
     });
     this.sessions.delete(session.callSid);
   }
@@ -173,6 +175,7 @@ export class AiReceptionistOrchestrator {
     transcript: unknown[];
     collectedFields: Record<string, unknown>;
     lastToolResults: Record<string, unknown>;
+    summary?: Awaited<ReturnType<ModelClient["summarizeCall"]>>;
   }): Promise<void> {
     try {
       await this.springBootClient.completeCall(input);
@@ -182,6 +185,19 @@ export class AiReceptionistOrchestrator {
         officeCode: input.officeCode,
         error: String(error)
       });
+    }
+  }
+
+  private async trySummarizeCall(session: CallSession): Promise<Awaited<ReturnType<ModelClient["summarizeCall"]>> | undefined> {
+    try {
+      return await this.modelClient.summarizeCall(session);
+    } catch (error) {
+      logger.warn("Unable to generate AI call summary; completing call without summary", {
+        callSid: session.callSid,
+        officeCode: session.officeCode,
+        error: String(error)
+      });
+      return undefined;
     }
   }
 }

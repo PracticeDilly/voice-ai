@@ -11,6 +11,13 @@ export interface ModelTurnResult {
   shouldEndCall?: boolean;
 }
 
+export interface ModelCallSummary {
+  summaryText: string;
+  primaryIntent?: string;
+  staffFollowupRequired?: boolean;
+  priority?: string;
+}
+
 export class ModelClient {
   private readonly client = new OpenAI({
     apiKey: config.OPENAI_API_KEY
@@ -68,6 +75,40 @@ export class ModelClient {
     return this.parseModelResult(content);
   }
 
+  async summarizeCall(session: CallSession): Promise<ModelCallSummary> {
+    const response = await this.client.chat.completions.create({
+      model: config.OPENAI_MODEL,
+      temperature: 0.1,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You summarize dental/healthcare AI receptionist calls for office staff.",
+            "Return only valid JSON.",
+            "The JSON shape is: {\"summaryText\": string, \"primaryIntent\": string, \"staffFollowupRequired\": boolean, \"priority\": \"LOW\"|\"NORMAL\"|\"HIGH\"}.",
+            "summaryText must be a short human-readable summary for office staff, usually 1 to 3 sentences.",
+            "Do not invent patient data or appointment confirmations."
+          ].join("\n")
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            officeCode: session.officeCode,
+            officeName: session.officeContext?.officeName,
+            currentIntent: session.currentIntent,
+            collectedFields: session.collectedFields,
+            lastToolResults: session.lastToolResults,
+            transcript: session.transcript
+          })
+        }
+      ]
+    });
+
+    const content = response.choices[0]?.message?.content ?? "{}";
+    return this.parseCallSummary(content, session);
+  }
+
   private buildSystemPrompt(session: CallSession): string {
     const office = session.officeContext;
     return [
@@ -109,6 +150,28 @@ export class ModelClient {
           }
         },
         intent: "HANDOFF_TO_STAFF"
+      };
+    }
+  }
+
+  private parseCallSummary(content: string, session: CallSession): ModelCallSummary {
+    try {
+      const parsed = JSON.parse(content) as ModelCallSummary;
+      const summaryText = parsed.summaryText?.trim() || "AI receptionist call completed. Staff can review the transcript for details.";
+      return {
+        ...parsed,
+        summaryText,
+        primaryIntent: parsed.primaryIntent ?? session.currentIntent,
+        staffFollowupRequired: parsed.staffFollowupRequired ?? false,
+        priority: parsed.priority ?? "NORMAL"
+      };
+    } catch {
+      const summaryText = "AI receptionist call completed. Staff can review the transcript for details.";
+      return {
+        summaryText,
+        primaryIntent: session.currentIntent,
+        staffFollowupRequired: true,
+        priority: "NORMAL"
       };
     }
   }
