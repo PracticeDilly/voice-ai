@@ -27,6 +27,20 @@ export class ToolRegistry {
       };
     }
 
-    return this.springBootClient.executeTool(session.callSid, session.officeCode, tool);
+    return this.springBootClient.executeTool(session.callSid, session.officeCode, this.enrichToolRequest(session, tool));
+  }
+
+  private enrichToolRequest(session: CallSession, tool: ToolRequest): ToolRequest {
+    if (tool.name !== "GET_NEXT_APPOINTMENT") {
+      return tool;
+    }
+
+    return {
+      ...tool,
+      arguments: {
+        ...(tool.arguments ?? {}),
+        fromNumber: session.fromNumber
+      }
+    };
   }
 }
