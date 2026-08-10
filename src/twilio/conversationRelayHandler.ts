@@ -17,6 +17,7 @@ export class ConversationRelayHandler {
     let processingPrompt = false;
     let queuedPrompt: string | undefined;
     let lastProcessedPrompt: { text: string; at: number } | undefined;
+    let interruptionGeneration = 0;
 
     ws.on("message", async (raw) => {
       try {
@@ -87,7 +88,7 @@ export class ConversationRelayHandler {
 
           processingPrompt = true;
           try {
-            lastProcessedPrompt = await this.processPrompt(session, callerText, ws);
+            lastProcessedPrompt = await this.processPrompt(session, callerText, ws, interruptionGeneration, () => interruptionGeneration);
 
             while (queuedPrompt) {
               const nextPrompt = queuedPrompt;
@@ -98,7 +99,7 @@ export class ConversationRelayHandler {
                 continue;
               }
 
-              lastProcessedPrompt = await this.processPrompt(session, nextPrompt, ws);
+              lastProcessedPrompt = await this.processPrompt(session, nextPrompt, ws, interruptionGeneration, () => interruptionGeneration);
             }
           } finally {
             processingPrompt = false;
@@ -108,6 +109,7 @@ export class ConversationRelayHandler {
         }
 
         if (message.type === "interrupt") {
+          interruptionGeneration += 1;
           queuedPrompt = undefined;
           logger.info("Caller interrupted AI response", {
             callSid,
@@ -185,8 +187,27 @@ export class ConversationRelayHandler {
     return message.type === "prompt" && (message.voicePrompt === undefined || typeof message.voicePrompt === "string");
   }
 
-  private async processPrompt(session: CallSession, callerText: string, ws: WebSocket) {
+  private async processPrompt(
+    session: CallSession,
+    callerText: string,
+    ws: WebSocket,
+    expectedInterruptionGeneration: number,
+    getInterruptionGeneration: () => number
+  ) {
     const outcome = await this.orchestrator.handleCallerText(session, callerText);
+    if (expectedInterruptionGeneration !== getInterruptionGeneration()) {
+      logger.info("Skipping AI response because caller interrupted before reply was ready", {
+        callSid: session.callSid,
+        callerText,
+        expectedInterruptionGeneration,
+        interruptionGeneration: getInterruptionGeneration()
+      });
+      return {
+        text: this.normalizePrompt(callerText),
+        at: Date.now()
+      };
+    }
+
     this.send(ws, {
       type: "text",
       token: outcome.reply,

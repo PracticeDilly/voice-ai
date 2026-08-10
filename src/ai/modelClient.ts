@@ -18,6 +18,10 @@ export interface ModelCallSummary {
   priority?: string;
 }
 
+interface EndCallDecision {
+  shouldEndCall: boolean;
+}
+
 export class ModelClient {
   private readonly client = new OpenAI({
     apiKey: config.OPENAI_API_KEY
@@ -70,6 +74,7 @@ export class ModelClient {
             toolResult,
             conversationHistory: session.transcript.slice(-12),
             lastAssistantReply: this.findLastAssistantReply(session),
+            lastCallerReply: this.findLastCallerReply(session),
             collectedFields: session.collectedFields,
             latestAppointmentLookupResult: session.lastToolResults.GET_NEXT_APPOINTMENT
           })
@@ -115,6 +120,39 @@ export class ModelClient {
     return this.parseCallSummary(content, session);
   }
 
+  async shouldEndCall(session: CallSession, callerText: string): Promise<boolean> {
+    const response = await this.client.chat.completions.create({
+      model: config.OPENAI_MODEL,
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You decide whether a caller is explicitly ending a phone conversation with the AI receptionist.",
+            "Return only valid JSON.",
+            "The JSON shape is: {\"shouldEndCall\": boolean}.",
+            "Set shouldEndCall to true only when the caller is clearly ending the conversation or dismissing further help.",
+            "Examples that should usually end the call include polite goodbyes, statements that they are done, or requests to end the call.",
+            "Do not set shouldEndCall to true when the caller is only pausing, correcting information, or asking for staff."
+          ].join("\n")
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            callerText,
+            currentIntent: session.currentIntent,
+            lastAssistantReply: this.findLastAssistantReply(session),
+            conversationHistory: session.transcript.slice(-8)
+          })
+        }
+      ]
+    });
+
+    const content = response.choices[0]?.message?.content ?? "{}";
+    return this.parseEndCallDecision(content);
+  }
+
   private buildSystemPrompt(session: CallSession): string {
     const office = session.officeContext;
     return [
@@ -126,8 +164,10 @@ export class ModelClient {
       "If the tool response says more identity information is needed, ask for the next missing field only: lastName first, then firstName, then date of birth.",
       "When calling GET_NEXT_APPOINTMENT, include any known fields in toolRequest.arguments using keys lastName, firstName, and dob.",
       "When a tool response says another field is needed, ask only for that field and preserve previously collected values in collectedFields.",
+      "If the caller's spoken identity detail sounds cut off, unclear, fragmented, or mostly filler words, do not say no patient was found yet. Instead, ask the caller to repeat or spell that identity detail.",
       "If you are in a GET_NEXT_APPOINTMENT flow and the caller seems to correct a previously heard name, treat that as an identity correction rather than as a new request.",
       "If GET_NEXT_APPOINTMENT returns PATIENT_NOT_FOUND and the caller immediately corrects, clarifies, or spells a name, update collectedFields with the corrected values and retry GET_NEXT_APPOINTMENT once before offering staff follow-up.",
+      "If GET_NEXT_APPOINTMENT returns PATIENT_NOT_FOUND right after an unclear or partial last-name response, ask the caller to repeat or spell the last name instead of claiming the provided last name was not found.",
       "If the caller provides a full corrected name after a failed lookup, update both firstName and lastName in collectedFields and use both in the retry.",
       "If the caller spells out a name letter by letter, interpret that as a correction to the existing name rather than as a new request.",
       "If GET_NEXT_APPOINTMENT returns PATIENT_NOT_FOUND after a spoken name, first say you may have heard the name incorrectly and ask the caller to spell the name you still need.",
@@ -141,6 +181,7 @@ export class ModelClient {
       "Do not repeat the same greeting, question, transfer offer, or confirmation twice in a row.",
       "If the last assistant reply already asked the current question or offered the same next step, acknowledge briefly and move forward instead of asking it again.",
       "Set shouldEndCall to true only when the caller is explicitly ending the conversation, not when you are merely offering a next step.",
+      "If the caller clearly indicates the conversation is over or they do not need anything else, respond with a brief closing and set shouldEndCall to true unless they are also explicitly asking for office staff.",
       "Never invent appointment times, appointment availability, insurance coverage, balances, or patient records.",
       "Never provide medical advice. For emergencies, instruct the caller to call 911.",
       "If caller asks for a human or live staff, request TRANSFER_TO_STAFF and set shouldEndCall to true.",
@@ -187,6 +228,26 @@ export class ModelClient {
     }
 
     return undefined;
+  }
+
+  private findLastCallerReply(session: CallSession): string | undefined {
+    for (let index = session.transcript.length - 1; index >= 0; index -= 1) {
+      const turn = session.transcript[index];
+      if (turn.speaker === "patient") {
+        return turn.text;
+      }
+    }
+
+    return undefined;
+  }
+
+  private parseEndCallDecision(content: string): boolean {
+    try {
+      const parsed = JSON.parse(content) as EndCallDecision;
+      return parsed.shouldEndCall === true;
+    } catch {
+      return false;
+    }
   }
 
   private parseCallSummary(content: string, session: CallSession): ModelCallSummary {
