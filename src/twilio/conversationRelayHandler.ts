@@ -1,6 +1,6 @@
 import { WebSocket } from "ws";
 import { AiReceptionistOrchestrator } from "../orchestration/aiReceptionistOrchestrator.js";
-import { CallSessionStore } from "../sessions/callSession.js";
+import { CallSession, CallSessionStore } from "../sessions/callSession.js";
 import {
   ConversationRelayMessage,
   ConversationRelayResponse,
@@ -14,6 +14,9 @@ export class ConversationRelayHandler {
 
   async handleConnection(ws: WebSocket): Promise<void> {
     let callSid: string | undefined;
+    let processingPrompt = false;
+    let queuedPrompt: string | undefined;
+    let lastProcessedPrompt: { text: string; at: number } | undefined;
 
     ws.on("message", async (raw) => {
       try {
@@ -45,28 +48,59 @@ export class ConversationRelayHandler {
         }
 
         if (this.isPromptMessage(message)) {
+          if (message.last !== true) {
+            logger.debug("Ignoring non-final Conversation Relay prompt fragment", {
+              callSid,
+              last: message.last
+            });
+            return;
+          }
+
           const callerText = message.voicePrompt?.trim();
           if (!callerText) {
             return;
           }
-          const outcome = await this.orchestrator.handleCallerText(session, callerText);
-          this.send(ws, {
-            type: "text",
-            token: outcome.reply,
-            last: true
-          });
-          if (outcome.shouldEndSession) {
-            windowlessDelay(() => {
-              this.send(ws, {
-                type: "end",
-                handoffData: JSON.stringify(outcome.handoffData ?? {})
-              });
-            }, 1200);
+
+          if (this.wasRecentlyProcessed(callerText, lastProcessedPrompt)) {
+            logger.info("Skipping duplicate final prompt", { callSid, callerText });
+            return;
           }
+
+          if (processingPrompt) {
+            const replacedPrompt = queuedPrompt;
+            queuedPrompt = callerText;
+            logger.debug("Stored latest final prompt while another turn is in progress", {
+              callSid,
+              callerText,
+              replacedPrompt
+            });
+            return;
+          }
+
+          processingPrompt = true;
+          try {
+            lastProcessedPrompt = await this.processPrompt(session, callerText, ws);
+
+            while (queuedPrompt) {
+              const nextPrompt = queuedPrompt;
+              queuedPrompt = undefined;
+
+              if (this.wasRecentlyProcessed(nextPrompt, lastProcessedPrompt)) {
+                logger.info("Skipping duplicate queued final prompt", { callSid, callerText: nextPrompt });
+                continue;
+              }
+
+              lastProcessedPrompt = await this.processPrompt(session, nextPrompt, ws);
+            }
+          } finally {
+            processingPrompt = false;
+          }
+
           return;
         }
 
         if (message.type === "interrupt") {
+          queuedPrompt = undefined;
           logger.info("Caller interrupted AI response", {
             callSid,
             utteranceUntilInterrupt: message.utteranceUntilInterrupt
@@ -141,6 +175,42 @@ export class ConversationRelayHandler {
 
   private isPromptMessage(message: ConversationRelayMessage): message is ConversationRelayMessage & { type: "prompt"; voicePrompt?: string } {
     return message.type === "prompt" && (message.voicePrompt === undefined || typeof message.voicePrompt === "string");
+  }
+
+  private async processPrompt(session: CallSession, callerText: string, ws: WebSocket) {
+    const outcome = await this.orchestrator.handleCallerText(session, callerText);
+    this.send(ws, {
+      type: "text",
+      token: outcome.reply,
+      last: true
+    });
+    if (outcome.shouldEndSession) {
+      windowlessDelay(() => {
+        this.send(ws, {
+          type: "end",
+          handoffData: JSON.stringify(outcome.handoffData ?? {})
+        });
+      }, 1200);
+    }
+
+    return {
+      text: this.normalizePrompt(callerText),
+      at: Date.now()
+    };
+  }
+
+  private wasRecentlyProcessed(callerText: string, lastProcessedPrompt?: { text: string; at: number }): boolean {
+    if (!lastProcessedPrompt) {
+      return false;
+    }
+
+    const duplicateWindowMs = 2000;
+    return lastProcessedPrompt.text === this.normalizePrompt(callerText)
+      && Date.now() - lastProcessedPrompt.at <= duplicateWindowMs;
+  }
+
+  private normalizePrompt(callerText: string): string {
+    return callerText.trim().replace(/\s+/g, " ").toLowerCase();
   }
 
   private send(ws: WebSocket, response: ConversationRelayResponse): void {

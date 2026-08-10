@@ -37,9 +37,11 @@ export class ModelClient {
           role: "user",
           content: JSON.stringify({
             callerText,
+            currentIntent: session.currentIntent,
             conversationHistory: session.transcript.slice(-12),
             collectedFields: session.collectedFields,
-            lastToolResults: session.lastToolResults
+            lastToolResults: session.lastToolResults,
+            latestAppointmentLookupResult: session.lastToolResults.GET_NEXT_APPOINTMENT
           })
         }
       ]
@@ -63,9 +65,11 @@ export class ModelClient {
           role: "user",
           content: JSON.stringify({
             instruction: "Use this tool result to produce the next caller-facing response.",
+            currentIntent: session.currentIntent,
             toolResult,
             conversationHistory: session.transcript.slice(-12),
-            collectedFields: session.collectedFields
+            collectedFields: session.collectedFields,
+            latestAppointmentLookupResult: session.lastToolResults.GET_NEXT_APPOINTMENT
           })
         }
       ]
@@ -120,8 +124,17 @@ export class ModelClient {
       "If the tool response says more identity information is needed, ask for the next missing field only: lastName first, then firstName, then date of birth.",
       "When calling GET_NEXT_APPOINTMENT, include any known fields in toolRequest.arguments using keys lastName, firstName, and dob.",
       "When a tool response says another field is needed, ask only for that field and preserve previously collected values in collectedFields.",
-      "If the tool response says PATIENT_NOT_FOUND, do not continue identity collection. Tell the caller no patient was found and offer staff follow-up if appropriate.",
+      "If you are in a GET_NEXT_APPOINTMENT flow and the caller seems to correct a previously heard name, treat that as an identity correction rather than as a new request.",
+      "If GET_NEXT_APPOINTMENT returns PATIENT_NOT_FOUND and the caller immediately corrects, clarifies, or spells a name, update collectedFields with the corrected values and retry GET_NEXT_APPOINTMENT once before offering staff follow-up.",
+      "If the caller provides a full corrected name after a failed lookup, update both firstName and lastName in collectedFields and use both in the retry.",
+      "If the caller spells out a name letter by letter, interpret that as a correction to the existing name rather than as a new request.",
+      "If GET_NEXT_APPOINTMENT returns PATIENT_NOT_FOUND after a spoken name, first say you may have heard the name incorrectly and ask the caller to spell the name you still need.",
+      "Prefer this recovery order after PATIENT_NOT_FOUND: confirm or spell firstName, then confirm or spell lastName, then ask for dob only if the backend still needs more identity information.",
+      "If the caller spells a corrected firstName or lastName, store the spelled version in collectedFields and use it in the next GET_NEXT_APPOINTMENT retry.",
+      "After a corrected spelling is provided, retry GET_NEXT_APPOINTMENT once with the corrected identity details before offering staff follow-up.",
+      "If GET_NEXT_APPOINTMENT returns PATIENT_NOT_FOUND and the caller does not provide any corrected identity details, then explain that no patient was found and offer staff follow-up if appropriate.",
       "Follow backend workflow statuses strictly for GET_NEXT_APPOINTMENT and do not invent your own verification flow.",
+      "Do not claim system limitations or say records are unavailable unless the backend tool response explicitly indicates a system or availability problem.",
       "If the caller asks about office information that is already present in Office facts or Business hours, answer directly without using a tool.",
       "Never invent appointment times, appointment availability, insurance coverage, balances, or patient records.",
       "Never provide medical advice. For emergencies, instruct the caller to call 911.",
