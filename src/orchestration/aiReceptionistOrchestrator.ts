@@ -53,10 +53,7 @@ export class AiReceptionistOrchestrator {
     const firstResult = await this.modelClient.nextTurn(session, callerText);
     const finalResult = await this.resolveModelResult(session, firstResult);
     const reply = finalResult.reply ?? "I am sorry, I could not complete that request.";
-    const transferToStaff = firstResult.toolRequest?.name === "TRANSFER_TO_STAFF"
-      || finalResult.toolRequest?.name === "TRANSFER_TO_STAFF"
-      || finalResult.intent === "TRANSFER_TO_STAFF"
-      || finalResult.shouldEndCall === true;
+    const transferToStaff = this.shouldTransferToStaff(firstResult, finalResult);
 
     if (finalResult.intent) {
       session.currentIntent = finalResult.intent;
@@ -130,6 +127,12 @@ export class AiReceptionistOrchestrator {
     });
 
     return this.modelClient.continueWithToolResult(session, toolResult);
+  }
+
+  private shouldTransferToStaff(firstResult: ModelTurnResult, finalResult: ModelTurnResult): boolean {
+    return firstResult.toolRequest?.name === "TRANSFER_TO_STAFF"
+      || finalResult.toolRequest?.name === "TRANSFER_TO_STAFF"
+      || finalResult.intent === "TRANSFER_TO_STAFF";
   }
 
   private async tryExecuteTool(session: CallSession, toolRequest: NonNullable<ModelTurnResult["toolRequest"]>) {

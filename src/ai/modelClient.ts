@@ -39,6 +39,7 @@ export class ModelClient {
             callerText,
             currentIntent: session.currentIntent,
             conversationHistory: session.transcript.slice(-12),
+            lastAssistantReply: this.findLastAssistantReply(session),
             collectedFields: session.collectedFields,
             lastToolResults: session.lastToolResults,
             latestAppointmentLookupResult: session.lastToolResults.GET_NEXT_APPOINTMENT
@@ -68,6 +69,7 @@ export class ModelClient {
             currentIntent: session.currentIntent,
             toolResult,
             conversationHistory: session.transcript.slice(-12),
+            lastAssistantReply: this.findLastAssistantReply(session),
             collectedFields: session.collectedFields,
             latestAppointmentLookupResult: session.lastToolResults.GET_NEXT_APPOINTMENT
           })
@@ -136,6 +138,9 @@ export class ModelClient {
       "Follow backend workflow statuses strictly for GET_NEXT_APPOINTMENT and do not invent your own verification flow.",
       "Do not claim system limitations or say records are unavailable unless the backend tool response explicitly indicates a system or availability problem.",
       "If the caller asks about office information that is already present in Office facts or Business hours, answer directly without using a tool.",
+      "Do not repeat the same greeting, question, transfer offer, or confirmation twice in a row.",
+      "If the last assistant reply already asked the current question or offered the same next step, acknowledge briefly and move forward instead of asking it again.",
+      "Set shouldEndCall to true only when the caller is explicitly ending the conversation, not when you are merely offering a next step.",
       "Never invent appointment times, appointment availability, insurance coverage, balances, or patient records.",
       "Never provide medical advice. For emergencies, instruct the caller to call 911.",
       "If caller asks for a human or live staff, request TRANSFER_TO_STAFF and set shouldEndCall to true.",
@@ -171,6 +176,17 @@ export class ModelClient {
         intent: "HANDOFF_TO_STAFF"
       };
     }
+  }
+
+  private findLastAssistantReply(session: CallSession): string | undefined {
+    for (let index = session.transcript.length - 1; index >= 0; index -= 1) {
+      const turn = session.transcript[index];
+      if (turn.speaker === "assistant") {
+        return turn.text;
+      }
+    }
+
+    return undefined;
   }
 
   private parseCallSummary(content: string, session: CallSession): ModelCallSummary {

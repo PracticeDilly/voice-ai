@@ -27,9 +27,17 @@ export class ConversationRelayHandler {
           const session = await this.handleSetup(message);
           callSid = session.callSid;
           if (message.customParameters?.welcomeGreetingProvided !== "true") {
+            const greeting = session.officeContext?.aiGreeting ?? "Thank you for calling. How can I help you today?";
+            this.sessions.append(session, {
+              speaker: "assistant",
+              text: greeting,
+              metadata: {
+                source: "setup-greeting"
+              }
+            });
             this.send(ws, {
               type: "text",
-              token: session.officeContext?.aiGreeting ?? "Thank you for calling. How can I help you today?",
+              token: greeting,
               last: true
             });
           }
