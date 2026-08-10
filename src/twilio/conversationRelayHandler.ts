@@ -194,9 +194,16 @@ export class ConversationRelayHandler {
     });
     if (outcome.shouldEndSession) {
       windowlessDelay(() => {
+        if (outcome.shouldTransferToStaff) {
+          this.send(ws, {
+            type: "end",
+            handoffData: JSON.stringify(outcome.handoffData ?? {})
+          });
+          return;
+        }
+
         this.send(ws, {
-          type: "end",
-          handoffData: JSON.stringify(outcome.handoffData ?? {})
+          type: "end"
         });
       }, 1200);
     }

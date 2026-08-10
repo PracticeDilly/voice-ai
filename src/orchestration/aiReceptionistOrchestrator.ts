@@ -7,6 +7,7 @@ import { logger } from "../utils/logger.js";
 export interface ConversationTurnOutcome {
   reply: string;
   shouldEndSession: boolean;
+  shouldTransferToStaff: boolean;
   handoffData?: Record<string, unknown>;
 }
 
@@ -54,6 +55,7 @@ export class AiReceptionistOrchestrator {
     const finalResult = await this.resolveModelResult(session, firstResult);
     const reply = finalResult.reply ?? "I am sorry, I could not complete that request.";
     const transferToStaff = this.shouldTransferToStaff(firstResult, finalResult);
+    const shouldEndSession = transferToStaff || finalResult.shouldEndCall === true;
 
     if (finalResult.intent) {
       session.currentIntent = finalResult.intent;
@@ -84,7 +86,8 @@ export class AiReceptionistOrchestrator {
 
     return {
       reply,
-      shouldEndSession: transferToStaff,
+      shouldEndSession,
+      shouldTransferToStaff: transferToStaff,
       handoffData: transferToStaff ? {
         reasonCode: "live-agent-handoff",
         reason: "Caller requested live office staff or AI could not safely complete the request.",
