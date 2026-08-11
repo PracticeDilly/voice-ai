@@ -50,6 +50,68 @@ export class ConversationRelayHandler {
     let latestObservedInputVersion = 0;
     let endingSession = false;
 
+    const processCommittedPrompts = async (session: CallSession): Promise<void> => {
+      if (processingPrompt) {
+        return;
+      }
+
+      processingPrompt = true;
+      try {
+        while (true) {
+          const nextPrompt = await this.awaitCommittedPrompt(committedPromptQueue, pendingPromptResolvers);
+          if (!nextPrompt) {
+            break;
+          }
+
+          if (this.wasRecentlyProcessed(nextPrompt.text, lastProcessedPrompt)) {
+            logger.info("Skipping duplicate committed final prompt", { callSid, callerText: nextPrompt.text });
+            continue;
+          }
+
+          lastProcessedPrompt = await this.processPrompt({
+            session,
+            callerText: nextPrompt.text,
+            ws,
+            expectedInterruptionGeneration: interruptionGeneration,
+            getInterruptionGeneration: () => interruptionGeneration,
+            turnId: nextPrompt.turnId,
+            expectedObservedInputVersion: nextPrompt.observedInputVersion,
+            getLatestObservedInputVersion: () => latestObservedInputVersion,
+            getNoInputTimer: () => noInputTimer,
+            setNoInputTimer: (timer) => {
+              noInputTimer = timer;
+            },
+            getNoInputCount: () => noInputCount,
+            setNoInputCount: (value) => {
+              noInputCount = value;
+            },
+            setEndingSession: (value) => {
+              endingSession = value;
+            }
+          });
+
+          if (committedPromptQueue.length === 0 && pendingPromptParts.length === 0 && !pendingPromptTimer) {
+            break;
+          }
+        }
+      } catch (error) {
+        logger.error("Failed to process committed caller prompt", {
+          callSid,
+          error: String(error)
+        });
+        this.send(ws, {
+          type: "text",
+          token: "I am sorry, something went wrong while processing that. Please say that again.",
+          last: true
+        });
+      } finally {
+        processingPrompt = false;
+        if (committedPromptQueue.length > 0) {
+          void processCommittedPrompts(session);
+        }
+      }
+    };
+
     ws.on("message", async (raw) => {
       try {
         const message = this.parseMessage(raw.toString());
@@ -152,6 +214,9 @@ export class ConversationRelayHandler {
                 turnId: nextTurnId,
                 observedInputVersion: latestObservedInputVersion
               };
+            },
+            () => {
+              void processCommittedPrompts(session);
             }
           );
           logger.info("Caller input buffered", {
@@ -161,57 +226,7 @@ export class ConversationRelayHandler {
             latestObservedInputVersion
           });
 
-          if (processingPrompt) {
-            logger.debug("Buffered final prompt while another turn is in progress", {
-              callSid,
-              callerText,
-              pendingPromptCount: pendingPromptParts.length
-            });
-            return;
-          }
-
-          processingPrompt = true;
-          try {
-            while (true) {
-              const nextPrompt = await this.awaitCommittedPrompt(committedPromptQueue, pendingPromptResolvers);
-              if (!nextPrompt) {
-                break;
-              }
-
-              if (this.wasRecentlyProcessed(nextPrompt.text, lastProcessedPrompt)) {
-                logger.info("Skipping duplicate committed final prompt", { callSid, callerText: nextPrompt.text });
-                continue;
-              }
-
-              lastProcessedPrompt = await this.processPrompt({
-                session,
-                callerText: nextPrompt.text,
-                ws,
-                expectedInterruptionGeneration: interruptionGeneration,
-                getInterruptionGeneration: () => interruptionGeneration,
-                turnId: nextPrompt.turnId,
-                expectedObservedInputVersion: nextPrompt.observedInputVersion,
-                getLatestObservedInputVersion: () => latestObservedInputVersion,
-                getNoInputTimer: () => noInputTimer,
-                setNoInputTimer: (timer) => {
-                  noInputTimer = timer;
-                },
-                getNoInputCount: () => noInputCount,
-                setNoInputCount: (value) => {
-                  noInputCount = value;
-                },
-                setEndingSession: (value) => {
-                  endingSession = value;
-                }
-              });
-
-              if (pendingPromptParts.length === 0 && !pendingPromptTimer) {
-                break;
-              }
-            }
-          } finally {
-            processingPrompt = false;
-          }
+          void processCommittedPrompts(session);
 
           return;
         }
@@ -421,7 +436,8 @@ export class ConversationRelayHandler {
     pendingPromptResolvers: Array<(value: CommittedPrompt | undefined) => void>,
     existingTimer: ReturnType<typeof setTimeout> | undefined,
     setPendingPromptTimer: (timer: ReturnType<typeof setTimeout> | undefined) => void,
-    createPromptMetadata: () => Pick<CommittedPrompt, "turnId" | "observedInputVersion">
+    createPromptMetadata: () => Pick<CommittedPrompt, "turnId" | "observedInputVersion">,
+    onCommittedPromptQueued: () => void
   ): ReturnType<typeof setTimeout> {
     this.clearTimer(existingTimer);
 
@@ -433,7 +449,9 @@ export class ConversationRelayHandler {
       }
       if (pendingPromptResolvers.length > 0) {
         this.resolvePendingPromptWaiters(pendingPromptResolvers, committedPromptQueue.shift());
+        return;
       }
+      onCommittedPromptQueued();
     }, config.AI_END_OF_UTTERANCE_WINDOW_MS);
   }
 
