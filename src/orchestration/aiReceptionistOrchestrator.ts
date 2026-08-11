@@ -40,6 +40,7 @@ export class AiReceptionistOrchestrator {
   }
 
   async handleCallerText(session: CallSession, callerText: string): Promise<ConversationTurnOutcome> {
+    const turnStartedAt = Date.now();
     this.sessions.append(session, {
       speaker: "patient",
       text: callerText
@@ -51,7 +52,9 @@ export class AiReceptionistOrchestrator {
       text: callerText
     });
 
+    const firstModelStartedAt = Date.now();
     const firstResult = await this.modelClient.nextTurn(session, callerText);
+    const firstModelDurationMs = Date.now() - firstModelStartedAt;
     const finalResult = await this.resolveModelResult(session, firstResult);
     const reply = finalResult.reply ?? "I am sorry, I could not complete that request.";
     const transferToStaff = this.shouldTransferToStaff(firstResult, finalResult);
@@ -64,7 +67,9 @@ export class AiReceptionistOrchestrator {
       finalIntent: finalResult.intent,
       shouldEndSession,
       shouldTransferToStaff: transferToStaff,
-      modelMarkedEndCall: finalResult.shouldEndCall === true
+      modelMarkedEndCall: finalResult.shouldEndCall === true,
+      firstModelDurationMs,
+      totalDurationMs: Date.now() - turnStartedAt
     });
 
     if (finalResult.intent) {
@@ -135,6 +140,7 @@ export class AiReceptionistOrchestrator {
       return result;
     }
 
+    const toolStartedAt = Date.now();
     logger.info("AI tool request started", {
       callSid: session.callSid,
       officeCode: session.officeCode,
@@ -154,10 +160,19 @@ export class AiReceptionistOrchestrator {
       callSid: session.callSid,
       officeCode: session.officeCode,
       toolName: result.toolRequest.name,
-      ok: typeof toolResult === "object" && toolResult !== null && "ok" in toolResult ? (toolResult as { ok?: unknown }).ok : undefined
+      ok: typeof toolResult === "object" && toolResult !== null && "ok" in toolResult ? (toolResult as { ok?: unknown }).ok : undefined,
+      durationMs: Date.now() - toolStartedAt
     });
 
-    return this.modelClient.continueWithToolResult(session, toolResult);
+    const followupModelStartedAt = Date.now();
+    const finalResult = await this.modelClient.continueWithToolResult(session, toolResult);
+    logger.info("AI tool result response completed", {
+      callSid: session.callSid,
+      officeCode: session.officeCode,
+      toolName: result.toolRequest.name,
+      durationMs: Date.now() - followupModelStartedAt
+    });
+    return finalResult;
   }
 
   private shouldTransferToStaff(firstResult: ModelTurnResult, finalResult: ModelTurnResult): boolean {

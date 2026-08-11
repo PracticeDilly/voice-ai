@@ -56,6 +56,7 @@ export interface ConversationRelayTextResponse {
 
 export interface ConversationRelayEndResponse {
   type: "end";
+  reason?: string;
   handoffData?: string;
 }
 

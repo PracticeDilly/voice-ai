@@ -15,6 +15,22 @@ interface CommittedPrompt {
   observedInputVersion: number;
 }
 
+interface PromptProcessingContext {
+  session: CallSession;
+  callerText: string;
+  ws: WebSocket;
+  expectedInterruptionGeneration: number;
+  getInterruptionGeneration: () => number;
+  turnId: number;
+  expectedObservedInputVersion: number;
+  getLatestObservedInputVersion: () => number;
+  getNoInputTimer: () => ReturnType<typeof setTimeout> | undefined;
+  setNoInputTimer: (timer: ReturnType<typeof setTimeout> | undefined) => void;
+  getNoInputCount: () => number;
+  setNoInputCount: (value: number) => void;
+  setEndingSession: (value: boolean) => void;
+}
+
 export class ConversationRelayHandler {
   private readonly sessions = new CallSessionStore();
   private readonly orchestrator = new AiReceptionistOrchestrator(this.sessions);
@@ -27,10 +43,12 @@ export class ConversationRelayHandler {
     let interruptionGeneration = 0;
     let pendingPromptTimer: ReturnType<typeof setTimeout> | undefined;
     let pendingPromptResolvers: Array<(value: CommittedPrompt | undefined) => void> = [];
+    let committedPromptQueue: CommittedPrompt[] = [];
     let noInputTimer: ReturnType<typeof setTimeout> | undefined;
     let noInputCount = 0;
     let nextTurnId = 0;
     let latestObservedInputVersion = 0;
+    let endingSession = false;
 
     ws.on("message", async (raw) => {
       try {
@@ -79,6 +97,20 @@ export class ConversationRelayHandler {
         }
 
         if (this.isPromptMessage(message)) {
+          if (endingSession) {
+            logger.info("Ignoring caller prompt because call end is in progress", {
+              callSid,
+              voicePrompt: message.voicePrompt
+            });
+            return;
+          }
+
+          logger.info("Conversation Relay prompt received", {
+            callSid,
+            last: message.last,
+            hasVoicePrompt: typeof message.voicePrompt === "string" && message.voicePrompt.trim().length > 0,
+            voicePromptLength: message.voicePrompt?.length ?? 0
+          });
           noInputTimer = this.clearTimer(noInputTimer);
           noInputCount = 0;
 
@@ -92,6 +124,10 @@ export class ConversationRelayHandler {
 
           const callerText = message.voicePrompt?.trim();
           if (!callerText) {
+            logger.info("Skipping empty Conversation Relay prompt", {
+              callSid,
+              last: message.last
+            });
             return;
           }
 
@@ -104,8 +140,12 @@ export class ConversationRelayHandler {
           this.addPendingPromptPart(callerText, pendingPromptParts);
           pendingPromptTimer = this.resetPendingPromptTimer(
             pendingPromptParts,
+            committedPromptQueue,
             pendingPromptResolvers,
             pendingPromptTimer,
+            (timer) => {
+              pendingPromptTimer = timer;
+            },
             () => {
               nextTurnId += 1;
               return {
@@ -133,7 +173,7 @@ export class ConversationRelayHandler {
           processingPrompt = true;
           try {
             while (true) {
-              const nextPrompt = await this.awaitCommittedPrompt(pendingPromptResolvers);
+              const nextPrompt = await this.awaitCommittedPrompt(committedPromptQueue, pendingPromptResolvers);
               if (!nextPrompt) {
                 break;
               }
@@ -143,24 +183,27 @@ export class ConversationRelayHandler {
                 continue;
               }
 
-              lastProcessedPrompt = await this.processPrompt(
+              lastProcessedPrompt = await this.processPrompt({
                 session,
-                nextPrompt.text,
+                callerText: nextPrompt.text,
                 ws,
-                interruptionGeneration,
-                () => interruptionGeneration,
-                nextPrompt.turnId,
-                nextPrompt.observedInputVersion,
-                () => latestObservedInputVersion,
-                () => noInputTimer,
-                (timer) => {
+                expectedInterruptionGeneration: interruptionGeneration,
+                getInterruptionGeneration: () => interruptionGeneration,
+                turnId: nextPrompt.turnId,
+                expectedObservedInputVersion: nextPrompt.observedInputVersion,
+                getLatestObservedInputVersion: () => latestObservedInputVersion,
+                getNoInputTimer: () => noInputTimer,
+                setNoInputTimer: (timer) => {
                   noInputTimer = timer;
                 },
-                () => noInputCount,
-                (value) => {
+                getNoInputCount: () => noInputCount,
+                setNoInputCount: (value) => {
                   noInputCount = value;
+                },
+                setEndingSession: (value) => {
+                  endingSession = value;
                 }
-              );
+              });
 
               if (pendingPromptParts.length === 0 && !pendingPromptTimer) {
                 break;
@@ -174,6 +217,14 @@ export class ConversationRelayHandler {
         }
 
         if (message.type === "interrupt") {
+          if (endingSession) {
+            logger.info("Caller interrupted while call end was already in progress", {
+              callSid,
+              utteranceUntilInterrupt: message.utteranceUntilInterrupt
+            });
+            return;
+          }
+
           interruptionGeneration += 1;
           pendingPromptParts = [];
           pendingPromptTimer = this.clearTimer(pendingPromptTimer);
@@ -207,6 +258,7 @@ export class ConversationRelayHandler {
 
     ws.on("close", async () => {
       pendingPromptTimer = this.clearTimer(pendingPromptTimer);
+      committedPromptQueue = [];
       noInputTimer = this.clearTimer(noInputTimer);
       this.resolvePendingPromptWaiters(pendingPromptResolvers, undefined);
       if (!callSid) {
@@ -259,86 +311,83 @@ export class ConversationRelayHandler {
     return message.type === "prompt" && (message.voicePrompt === undefined || typeof message.voicePrompt === "string");
   }
 
-  private async processPrompt(
-    session: CallSession,
-    callerText: string,
-    ws: WebSocket,
-    expectedInterruptionGeneration: number,
-    getInterruptionGeneration: () => number,
-    turnId: number,
-    expectedObservedInputVersion: number,
-    getLatestObservedInputVersion: () => number,
-    getNoInputTimer: () => ReturnType<typeof setTimeout> | undefined,
-    setNoInputTimer: (timer: ReturnType<typeof setTimeout> | undefined) => void,
-    getNoInputCount: () => number,
-    setNoInputCount: (value: number) => void
-  ) {
-    const outcome = await this.orchestrator.handleCallerText(session, callerText);
-    if (expectedInterruptionGeneration !== getInterruptionGeneration()) {
+  private async processPrompt(context: PromptProcessingContext) {
+    const startedAt = Date.now();
+    let processing = true;
+    const processingAckTimer = this.scheduleProcessingAcknowledgement(context, startedAt, () => processing);
+    let outcome;
+    try {
+      outcome = await this.orchestrator.handleCallerText(context.session, context.callerText);
+    } finally {
+      processing = false;
+      this.clearTimer(processingAckTimer);
+    }
+    if (context.expectedInterruptionGeneration !== context.getInterruptionGeneration()) {
       logger.info("AI reply suppressed as stale after interrupt", {
-        callSid: session.callSid,
-        callerText,
-        turnId,
-        expectedInterruptionGeneration,
-        interruptionGeneration: getInterruptionGeneration()
+        callSid: context.session.callSid,
+        callerText: context.callerText,
+        turnId: context.turnId,
+        expectedInterruptionGeneration: context.expectedInterruptionGeneration,
+        interruptionGeneration: context.getInterruptionGeneration()
       });
       return {
-        text: this.normalizePrompt(callerText),
+        text: this.normalizePrompt(context.callerText),
         at: Date.now()
       };
     }
-    if (expectedObservedInputVersion !== getLatestObservedInputVersion()) {
+    if (context.expectedObservedInputVersion !== context.getLatestObservedInputVersion()) {
       logger.info("AI reply suppressed as stale after newer caller turn", {
-        callSid: session.callSid,
-        callerText,
-        turnId,
-        expectedObservedInputVersion,
-        latestObservedInputVersion: getLatestObservedInputVersion()
+        callSid: context.session.callSid,
+        callerText: context.callerText,
+        turnId: context.turnId,
+        expectedObservedInputVersion: context.expectedObservedInputVersion,
+        latestObservedInputVersion: context.getLatestObservedInputVersion()
       });
       return {
-        text: this.normalizePrompt(callerText),
+        text: this.normalizePrompt(context.callerText),
         at: Date.now()
       };
     }
 
-    this.send(ws, {
+    this.send(context.ws, {
       type: "text",
       token: outcome.reply,
       last: true
     });
-    if (outcome.shouldEndSession) {
-      windowlessDelay(() => {
-        if (outcome.shouldTransferToStaff) {
-          this.send(ws, {
-            type: "end",
-            handoffData: JSON.stringify(outcome.handoffData ?? {})
-          });
-          return;
-        }
+    logger.info("AI reply sent to Conversation Relay", {
+      callSid: context.session.callSid,
+      turnId: context.turnId,
+      durationMs: Date.now() - startedAt,
+      shouldEndSession: outcome.shouldEndSession,
+      shouldTransferToStaff: outcome.shouldTransferToStaff
+    });
 
-        this.send(ws, {
-          type: "end"
-        });
-      }, 1200);
-      setNoInputTimer(this.clearTimer(getNoInputTimer()));
+    if (outcome.shouldEndSession) {
+      context.setEndingSession(true);
+      context.setNoInputTimer(this.clearTimer(context.getNoInputTimer()));
+      this.scheduleCallEnd(context.session, context.ws, outcome.reply, {
+        turnId: context.turnId,
+        shouldTransferToStaff: outcome.shouldTransferToStaff,
+        handoffData: outcome.handoffData
+      });
       return {
-        text: this.normalizePrompt(callerText),
+        text: this.normalizePrompt(context.callerText),
         at: Date.now()
       };
     }
 
-    setNoInputTimer(this.resetNoInputTimer(
-      session,
-      ws,
+    context.setNoInputTimer(this.resetNoInputTimer(
+      context.session,
+      context.ws,
       outcome.reply,
-      getNoInputTimer(),
-      getNoInputCount(),
-      setNoInputCount,
-      setNoInputTimer
+      context.getNoInputTimer(),
+      context.getNoInputCount(),
+      context.setNoInputCount,
+      context.setNoInputTimer
     ));
 
     return {
-      text: this.normalizePrompt(callerText),
+      text: this.normalizePrompt(context.callerText),
       at: Date.now()
     };
   }
@@ -363,15 +412,21 @@ export class ConversationRelayHandler {
 
   private resetPendingPromptTimer(
     pendingPromptParts: string[],
+    committedPromptQueue: CommittedPrompt[],
     pendingPromptResolvers: Array<(value: CommittedPrompt | undefined) => void>,
     existingTimer: ReturnType<typeof setTimeout> | undefined,
+    setPendingPromptTimer: (timer: ReturnType<typeof setTimeout> | undefined) => void,
     createPromptMetadata: () => Pick<CommittedPrompt, "turnId" | "observedInputVersion">
   ): ReturnType<typeof setTimeout> {
     this.clearTimer(existingTimer);
 
     return setTimeout(() => {
+      setPendingPromptTimer(undefined);
       const committedPrompt = this.commitPendingPrompt(pendingPromptParts, createPromptMetadata);
-      this.resolvePendingPromptWaiters(pendingPromptResolvers, committedPrompt);
+      if (committedPrompt) {
+        committedPromptQueue.push(committedPrompt);
+      }
+      this.resolvePendingPromptWaiters(pendingPromptResolvers, committedPromptQueue.shift());
     }, config.AI_END_OF_UTTERANCE_WINDOW_MS);
   }
 
@@ -406,8 +461,14 @@ export class ConversationRelayHandler {
   }
 
   private awaitCommittedPrompt(
+    committedPromptQueue: CommittedPrompt[],
     pendingPromptResolvers: Array<(value: CommittedPrompt | undefined) => void>
   ): Promise<CommittedPrompt | undefined> {
+    const queuedPrompt = committedPromptQueue.shift();
+    if (queuedPrompt) {
+      return Promise.resolve(queuedPrompt);
+    }
+
     return new Promise((resolve) => {
       pendingPromptResolvers.push(resolve);
     });
@@ -434,6 +495,11 @@ export class ConversationRelayHandler {
   ): ReturnType<typeof setTimeout> {
     this.clearTimer(existingTimer);
     const delayMs = this.estimatedSpeechDurationMs(assistantText) + config.AI_NO_INPUT_TIMEOUT_MS;
+    logger.info("No-input timer armed", {
+      callSid: session.callSid,
+      delayMs,
+      noInputCount
+    });
 
     return setTimeout(() => {
       setNoInputTimer(undefined);
@@ -488,11 +554,10 @@ export class ConversationRelayHandler {
       token: closingMessage,
       last: true
     });
-    windowlessDelay(() => {
-      this.send(ws, {
-        type: "end"
-      });
-    }, 1200);
+    this.scheduleCallEnd(session, ws, closingMessage, {
+      turnId: undefined,
+      shouldTransferToStaff: false
+    });
   }
 
   private clearTimer(timer?: ReturnType<typeof setTimeout>): undefined {
@@ -508,11 +573,99 @@ export class ConversationRelayHandler {
     return Math.max(1500, words * 360 + 600);
   }
 
-  private send(ws: WebSocket, response: ConversationRelayResponse): void {
+  private scheduleProcessingAcknowledgement(
+    context: PromptProcessingContext,
+    startedAt: number,
+    shouldContinue: () => boolean,
+    attempt = 0
+  ): ReturnType<typeof setTimeout> {
+    const delayMs = attempt === 0
+      ? config.AI_PROCESSING_ACK_DELAY_MS
+      : config.AI_PROCESSING_ACK_REPEAT_MS;
+
+    return setTimeout(() => {
+      if (!shouldContinue()
+        || context.expectedInterruptionGeneration !== context.getInterruptionGeneration()
+        || context.expectedObservedInputVersion !== context.getLatestObservedInputVersion()
+        || context.ws.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      const acknowledgement = attempt === 0
+        ? "I'm checking that now. Thanks for waiting."
+        : "This is taking a little longer than usual, but I'm still checking.";
+      logger.info("Processing acknowledgement sent", {
+        callSid: context.session.callSid,
+        turnId: context.turnId,
+        attempt: attempt + 1,
+        elapsedMs: Date.now() - startedAt
+      });
+      void this.orchestrator.recordAssistantTurn(context.session, acknowledgement, {
+        source: "processing-acknowledgement",
+        turnId: context.turnId,
+        attempt: attempt + 1
+      });
+      this.send(context.ws, {
+        type: "text",
+        token: acknowledgement,
+        last: true
+      });
+      this.scheduleProcessingAcknowledgement(context, startedAt, shouldContinue, attempt + 1);
+    }, delayMs);
+  }
+
+  private scheduleCallEnd(
+    session: CallSession,
+    ws: WebSocket,
+    assistantText: string,
+    options: {
+      turnId?: number;
+      shouldTransferToStaff: boolean;
+      handoffData?: Record<string, unknown>;
+    }
+  ): void {
+    const delayMs = this.estimatedSpeechDurationMs(assistantText) + 500;
+    logger.info("AI call end scheduled", {
+      callSid: session.callSid,
+      turnId: options.turnId,
+      delayMs,
+      shouldTransferToStaff: options.shouldTransferToStaff
+    });
+
+    windowlessDelay(() => {
+      const response: ConversationRelayResponse = options.shouldTransferToStaff
+        ? {
+          type: "end",
+          handoffData: JSON.stringify(options.handoffData ?? {})
+        }
+        : {
+          type: "end",
+          reason: "caller-requested-end"
+        };
+      const sent = this.send(ws, response);
+      logger.info("AI call end sent to Conversation Relay", {
+        callSid: session.callSid,
+        turnId: options.turnId,
+        sent,
+        shouldTransferToStaff: options.shouldTransferToStaff
+      });
+
+      if (!options.shouldTransferToStaff) {
+        windowlessDelay(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.close(1000, "AI call ended");
+          }
+        }, 500);
+      }
+    }, delayMs);
+  }
+
+  private send(ws: WebSocket, response: ConversationRelayResponse): boolean {
     if (ws.readyState !== WebSocket.OPEN) {
-      return;
+      return false;
     }
     ws.send(JSON.stringify(response));
+    return true;
   }
 }
 

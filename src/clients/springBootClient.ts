@@ -93,6 +93,15 @@ export class SpringBootClient {
       return undefined as T;
     }
 
-    return response.json() as Promise<T>;
+    const body = await response.text();
+    if (!body.trim() || body.trim().toUpperCase() === "OK") {
+      return undefined as T;
+    }
+
+    try {
+      return JSON.parse(body) as T;
+    } catch (error) {
+      throw new Error(`Spring Boot API returned non-JSON response: ${body.slice(0, 200)}`);
+    }
   }
 }

@@ -169,6 +169,9 @@ export class ModelClient {
   private parseModelResult(content: string): ModelTurnResult {
     try {
       const parsed = JSON.parse(content) as ModelTurnResult;
+      if (!parsed.toolRequest?.name?.trim()) {
+        delete parsed.toolRequest;
+      }
       return parsed;
     } catch {
       return {
