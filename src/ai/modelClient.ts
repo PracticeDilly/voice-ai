@@ -134,7 +134,9 @@ export class ModelClient {
             "The JSON shape is: {\"shouldEndCall\": boolean}.",
             "Set shouldEndCall to true only when the caller is clearly ending the conversation or dismissing further help.",
             "Examples that should usually end the call include polite goodbyes, statements that they are done, or requests to end the call.",
-            "Do not set shouldEndCall to true when the caller is only pausing, correcting information, or asking for staff."
+            "Interpret the caller's message in the context of the assistant's immediately previous question and the active workflow.",
+            "Do not set shouldEndCall to true when the caller is still participating in the current task, such as correcting information, spelling a name, answering a verification question, confirming a requested detail, or asking for staff.",
+            "Only set shouldEndCall to true when the intent to end the conversation is unambiguous in context."
           ].join("\n")
         },
         {
@@ -143,7 +145,8 @@ export class ModelClient {
             callerText,
             currentIntent: session.currentIntent,
             lastAssistantReply: this.findLastAssistantReply(session),
-            conversationHistory: session.transcript.slice(-8)
+            conversationHistory: session.transcript.slice(-8),
+            latestAppointmentLookupResult: session.lastToolResults.GET_NEXT_APPOINTMENT
           })
         }
       ]
@@ -180,6 +183,8 @@ export class ModelClient {
       "If the caller asks about office information that is already present in Office facts or Business hours, answer directly without using a tool.",
       "Do not repeat the same greeting, question, transfer offer, or confirmation twice in a row.",
       "If the last assistant reply already asked the current question or offered the same next step, acknowledge briefly and move forward instead of asking it again.",
+      "Interpret each caller reply in the context of the assistant's immediately previous question and the current workflow state.",
+      "When the assistant has asked for identity or verification details, assume the caller's next short or fragmentary reply is most likely part of that verification flow unless the caller clearly changes intent.",
       "Set shouldEndCall to true only when the caller is explicitly ending the conversation, not when you are merely offering a next step.",
       "If the caller clearly indicates the conversation is over or they do not need anything else, respond with a brief closing and set shouldEndCall to true unless they are also explicitly asking for office staff.",
       "Never invent appointment times, appointment availability, insurance coverage, balances, or patient records.",

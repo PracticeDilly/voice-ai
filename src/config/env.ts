@@ -11,7 +11,10 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().min(1),
   OPENAI_MODEL: z.string().min(1).default("gpt-4.1-mini"),
   AI_MAX_SESSION_MINUTES: z.coerce.number().int().positive().default(20),
-  AI_DEFAULT_OFFICE_TIMEZONE: z.string().default("America/Los_Angeles")
+  AI_DEFAULT_OFFICE_TIMEZONE: z.string().default("America/Los_Angeles"),
+  AI_END_OF_UTTERANCE_WINDOW_MS: z.coerce.number().int().positive().default(900),
+  AI_NO_INPUT_TIMEOUT_MS: z.coerce.number().int().positive().default(6000),
+  AI_MAX_NO_INPUT_REPROMPTS: z.coerce.number().int().nonnegative().default(2)
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

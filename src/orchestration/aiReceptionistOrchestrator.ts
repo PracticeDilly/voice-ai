@@ -60,6 +60,16 @@ export class AiReceptionistOrchestrator {
     const transferToStaff = this.shouldTransferToStaff(firstResult, finalResult);
     const shouldEndSession = transferToStaff || finalResult.shouldEndCall === true || fallbackEndCall;
 
+    logger.info("AI turn completed", {
+      callSid: session.callSid,
+      officeCode: session.officeCode,
+      currentIntent: session.currentIntent,
+      finalIntent: finalResult.intent,
+      shouldEndSession,
+      shouldTransferToStaff: transferToStaff,
+      fallbackEndCall
+    });
+
     if (finalResult.intent) {
       session.currentIntent = finalResult.intent;
     }
@@ -70,21 +80,8 @@ export class AiReceptionistOrchestrator {
       };
     }
 
-    this.sessions.append(session, {
-      speaker: "assistant",
-      text: reply,
-      metadata: {
-        intent: finalResult.intent
-      }
-    });
-    await this.trySaveTranscriptTurn({
-      callSid: session.callSid,
-      officeCode: session.officeCode,
-      speaker: "assistant",
-      text: reply,
-      metadata: {
-        intent: finalResult.intent
-      }
+    await this.recordAssistantTurn(session, reply, {
+      intent: finalResult.intent
     });
 
     return {
@@ -117,11 +114,36 @@ export class AiReceptionistOrchestrator {
     this.sessions.delete(session.callSid);
   }
 
+  async recordAssistantTurn(
+    session: CallSession,
+    text: string,
+    metadata?: Record<string, unknown>
+  ): Promise<void> {
+    this.sessions.append(session, {
+      speaker: "assistant",
+      text,
+      metadata
+    });
+    await this.trySaveTranscriptTurn({
+      callSid: session.callSid,
+      officeCode: session.officeCode,
+      speaker: "assistant",
+      text,
+      metadata
+    });
+  }
+
   private async resolveModelResult(session: CallSession, result: ModelTurnResult): Promise<ModelTurnResult> {
     if (!result.toolRequest) {
       return result;
     }
 
+    logger.info("AI tool request started", {
+      callSid: session.callSid,
+      officeCode: session.officeCode,
+      toolName: result.toolRequest.name,
+      arguments: result.toolRequest.arguments
+    });
     const toolResult = await this.tryExecuteTool(session, result.toolRequest);
     session.lastToolResults[result.toolRequest.name] = toolResult;
     this.sessions.append(session, {
@@ -130,6 +152,12 @@ export class AiReceptionistOrchestrator {
       metadata: {
         toolName: result.toolRequest.name
       }
+    });
+    logger.info("AI tool request finished", {
+      callSid: session.callSid,
+      officeCode: session.officeCode,
+      toolName: result.toolRequest.name,
+      ok: typeof toolResult === "object" && toolResult !== null && "ok" in toolResult ? (toolResult as { ok?: unknown }).ok : undefined
     });
 
     return this.modelClient.continueWithToolResult(session, toolResult);
