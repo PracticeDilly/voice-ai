@@ -53,12 +53,9 @@ export class AiReceptionistOrchestrator {
 
     const firstResult = await this.modelClient.nextTurn(session, callerText);
     const finalResult = await this.resolveModelResult(session, firstResult);
-    const fallbackEndCall = !this.shouldTransferToStaff(firstResult, finalResult) && finalResult.shouldEndCall !== true
-      ? await this.modelClient.shouldEndCall(session, callerText)
-      : false;
     const reply = finalResult.reply ?? "I am sorry, I could not complete that request.";
     const transferToStaff = this.shouldTransferToStaff(firstResult, finalResult);
-    const shouldEndSession = transferToStaff || finalResult.shouldEndCall === true || fallbackEndCall;
+    const shouldEndSession = transferToStaff || finalResult.shouldEndCall === true;
 
     logger.info("AI turn completed", {
       callSid: session.callSid,
@@ -67,7 +64,7 @@ export class AiReceptionistOrchestrator {
       finalIntent: finalResult.intent,
       shouldEndSession,
       shouldTransferToStaff: transferToStaff,
-      fallbackEndCall
+      modelMarkedEndCall: finalResult.shouldEndCall === true
     });
 
     if (finalResult.intent) {

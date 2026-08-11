@@ -18,10 +18,6 @@ export interface ModelCallSummary {
   priority?: string;
 }
 
-interface EndCallDecision {
-  shouldEndCall: boolean;
-}
-
 export class ModelClient {
   private readonly client = new OpenAI({
     apiKey: config.OPENAI_API_KEY
@@ -120,42 +116,6 @@ export class ModelClient {
     return this.parseCallSummary(content, session);
   }
 
-  async shouldEndCall(session: CallSession, callerText: string): Promise<boolean> {
-    const response = await this.client.chat.completions.create({
-      model: config.OPENAI_MODEL,
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content: [
-            "You decide whether a caller is explicitly ending a phone conversation with the AI receptionist.",
-            "Return only valid JSON.",
-            "The JSON shape is: {\"shouldEndCall\": boolean}.",
-            "Set shouldEndCall to true only when the caller is clearly ending the conversation or dismissing further help.",
-            "Examples that should usually end the call include polite goodbyes, statements that they are done, or requests to end the call.",
-            "Interpret the caller's message in the context of the assistant's immediately previous question and the active workflow.",
-            "Do not set shouldEndCall to true when the caller is still participating in the current task, such as correcting information, spelling a name, answering a verification question, confirming a requested detail, or asking for staff.",
-            "Only set shouldEndCall to true when the intent to end the conversation is unambiguous in context."
-          ].join("\n")
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            callerText,
-            currentIntent: session.currentIntent,
-            lastAssistantReply: this.findLastAssistantReply(session),
-            conversationHistory: session.transcript.slice(-8),
-            latestAppointmentLookupResult: session.lastToolResults.GET_NEXT_APPOINTMENT
-          })
-        }
-      ]
-    });
-
-    const content = response.choices[0]?.message?.content ?? "{}";
-    return this.parseEndCallDecision(content);
-  }
-
   private buildSystemPrompt(session: CallSession): string {
     const office = session.officeContext;
     return [
@@ -244,15 +204,6 @@ export class ModelClient {
     }
 
     return undefined;
-  }
-
-  private parseEndCallDecision(content: string): boolean {
-    try {
-      const parsed = JSON.parse(content) as EndCallDecision;
-      return parsed.shouldEndCall === true;
-    } catch {
-      return false;
-    }
   }
 
   private parseCallSummary(content: string, session: CallSession): ModelCallSummary {
