@@ -6,6 +6,7 @@ import { logger } from "../utils/logger.js";
 
 export interface ConversationTurnOutcome {
   reply: string;
+  assistantMetadata?: Record<string, unknown>;
   shouldEndSession: boolean;
   shouldTransferToStaff: boolean;
   handoffData?: Record<string, unknown>;
@@ -82,12 +83,11 @@ export class AiReceptionistOrchestrator {
       };
     }
 
-    await this.recordAssistantTurn(session, reply, {
-      intent: finalResult.intent
-    });
-
     return {
       reply,
+      assistantMetadata: {
+        intent: finalResult.intent
+      },
       shouldEndSession,
       shouldTransferToStaff: transferToStaff,
       handoffData: transferToStaff ? {

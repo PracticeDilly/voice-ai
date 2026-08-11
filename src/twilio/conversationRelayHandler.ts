@@ -354,6 +354,11 @@ export class ConversationRelayHandler {
       token: outcome.reply,
       last: true
     });
+    void this.orchestrator.recordAssistantTurn(
+      context.session,
+      outcome.reply,
+      outcome.assistantMetadata
+    );
     logger.info("AI reply sent to Conversation Relay", {
       callSid: context.session.callSid,
       turnId: context.turnId,
@@ -426,7 +431,9 @@ export class ConversationRelayHandler {
       if (committedPrompt) {
         committedPromptQueue.push(committedPrompt);
       }
-      this.resolvePendingPromptWaiters(pendingPromptResolvers, committedPromptQueue.shift());
+      if (pendingPromptResolvers.length > 0) {
+        this.resolvePendingPromptWaiters(pendingPromptResolvers, committedPromptQueue.shift());
+      }
     }, config.AI_END_OF_UTTERANCE_WINDOW_MS);
   }
 
@@ -639,8 +646,7 @@ export class ConversationRelayHandler {
           handoffData: JSON.stringify(options.handoffData ?? {})
         }
         : {
-          type: "end",
-          reason: "caller-requested-end"
+          type: "end"
         };
       const sent = this.send(ws, response);
       logger.info("AI call end sent to Conversation Relay", {
