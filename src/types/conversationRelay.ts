@@ -52,6 +52,16 @@ export interface ConversationRelayTextResponse {
   type: "text";
   token: string;
   last?: boolean;
+  interruptible?: boolean;
+  preemptible?: boolean;
+}
+
+export interface ConversationRelayPlayResponse {
+  type: "play";
+  source: string;
+  loop?: number;
+  preemptible?: boolean;
+  interruptible?: boolean;
 }
 
 export interface ConversationRelayEndResponse {
@@ -59,4 +69,7 @@ export interface ConversationRelayEndResponse {
   handoffData?: string;
 }
 
-export type ConversationRelayResponse = ConversationRelayTextResponse | ConversationRelayEndResponse;
+export type ConversationRelayResponse =
+  | ConversationRelayTextResponse
+  | ConversationRelayPlayResponse
+  | ConversationRelayEndResponse;

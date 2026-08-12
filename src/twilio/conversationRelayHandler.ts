@@ -616,7 +616,24 @@ export class ConversationRelayHandler {
         return;
       }
 
-      const acknowledgement = attempt === 0
+      if (attempt === 0 && config.AI_PROCESSING_SOUND_URL) {
+        logger.info("Processing sound sent", {
+          callSid: context.session.callSid,
+          turnId: context.turnId,
+          elapsedMs: Date.now() - startedAt
+        });
+        this.send(context.ws, {
+          type: "play",
+          source: config.AI_PROCESSING_SOUND_URL,
+          loop: 0,
+          preemptible: true,
+          interruptible: true
+        });
+        this.scheduleProcessingAcknowledgement(context, startedAt, shouldContinue, attempt + 1);
+        return;
+      }
+
+      const acknowledgement = attempt <= 1
         ? "I'm checking that now. Thanks for waiting."
         : "This is taking a little longer than usual, but I'm still checking.";
       logger.info("Processing acknowledgement sent", {
