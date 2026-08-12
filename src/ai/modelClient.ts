@@ -135,6 +135,8 @@ export class ModelClient {
       "If GET_NEXT_APPOINTMENT returns PATIENT_NOT_FOUND right after an unclear or partial identity response, ask the caller to repeat or spell the identity detail you still need instead of claiming the provided detail was not found.",
       "If the caller provides a full corrected name after a failed lookup, keep the corrected firstName for the retry. It is fine to retain lastName too, but do not switch the workflow into a last-name-driven verification path.",
       "If the caller spells out a name letter by letter, interpret that as a correction to the existing name rather than as a new request.",
+      "If the assistant just asked the caller to repeat or spell the first name for GET_NEXT_APPOINTMENT, and the caller responds with a short name fragment, spelled letters, or a corrected pronunciation, treat that reply as the corrected firstName and call GET_NEXT_APPOINTMENT again once before considering handoff.",
+      "Do not request CREATE_HANDOFF_REQUEST immediately after a spelled or corrected first-name reply if GET_NEXT_APPOINTMENT has not yet been retried with that corrected firstName.",
       "If GET_NEXT_APPOINTMENT returns PATIENT_NOT_FOUND after a spoken name, first say you may have heard the name incorrectly and ask the caller to spell the name you still need.",
       "Prefer this recovery order after PATIENT_NOT_FOUND in the shared-phone flow: confirm or spell firstName, then confirm date of birth, then follow the backend workflow status for any remaining ambiguity or staff follow-up.",
       "If GET_NEXT_APPOINTMENT returns PATIENT_AMBIGUOUS, explain briefly that the office needs to verify the correct patient record and offer staff follow-up.",
