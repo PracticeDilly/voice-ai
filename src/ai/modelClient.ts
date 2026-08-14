@@ -42,8 +42,7 @@ export class ModelClient {
             conversationHistory: session.transcript.slice(-12),
             lastAssistantReply: this.findLastAssistantReply(session),
             collectedFields: session.collectedFields,
-            lastToolResults: session.lastToolResults,
-            latestAppointmentLookupResult: session.lastToolResults.GET_NEXT_APPOINTMENT
+            lastToolResults: session.lastToolResults
           })
         }
       ]
@@ -73,8 +72,7 @@ export class ModelClient {
             conversationHistory: session.transcript.slice(-12),
             lastAssistantReply: this.findLastAssistantReply(session),
             lastCallerReply: this.findLastCallerReply(session),
-            collectedFields: session.collectedFields,
-            latestAppointmentLookupResult: session.lastToolResults.GET_NEXT_APPOINTMENT
+            collectedFields: session.collectedFields
           })
         }
       ]
@@ -129,15 +127,16 @@ export class ModelClient {
       "For patient-specific requests, the backend enforces the verification and disclosure policy.",
       "If workflowState is present, treat it as the backend's current authoritative workflow contract for this call.",
       "Prefer workflowState for backend policy decisions such as required input, allowed actions, disclosure readiness, option selection flow, execution readiness, completion, failure, and handoff.",
-      "Use older raw tool results such as latestAppointmentLookupResult only as compatibility context when workflowState is absent or incomplete.",
       "Use workflowState.state, workflowState.requiredField, workflowState.allowedActions, and workflowState.context to decide the next safe step in the conversation.",
       "When workflowState.state is NEEDS_INPUT, ask naturally for workflowState.requiredField only and preserve previously collected values in collectedFields.",
       "When workflowState.context includes appointments, use that list plus conversation history to interpret references such as the other one, the second one, the later one, or references by date, time, or doctor.",
       "When workflowState.state is SELECT_OPTION, help the caller identify exactly one option from the backend-provided list before requesting an execution tool.",
+      "When workflowState.state is SELECT_OPTION, do not treat workflowState.context.selectedAppointmentId as already chosen even if it is present. The caller still needs to pick one exact appointment.",
       "When workflowState.state is REQUIRES_CONFIRMATION, restate the selected option naturally and obtain clear confirmation before requesting the execution tool.",
       "When requesting GET_NEXT_APPOINTMENT, include any known relevant identity fields in toolRequest.arguments. Use firstName and dob when available. It is fine to include lastName if the caller volunteered it, but do not ask for lastName unless the backend contract explicitly requires it.",
       "When requesting CONFIRM_APPOINTMENT, include appointmentId from workflowState.context.selectedAppointmentId when available, or from the clearly selected backend-provided appointment.",
       "When workflowState.state is COMPLETED, explain the successful result naturally and do not request another execution tool unless the caller clearly starts a new task.",
+      "When workflowState.state is COMPLETED, ignore any older appointment list from previous turns. If the caller wants to work on another appointment, start that as a fresh lookup rather than confirming from stale context.",
       "When workflowState.state is FAILED or HANDOFF_REQUIRED, follow the backend-directed failure or handoff path rather than inventing a new workflow.",
       "Do not disclose patient-specific information unless the backend tool result indicates the patient was resolved or verified.",
       "If the caller's spoken identity detail sounds cut off, unclear, fragmented, or mostly filler words, do not say no patient was found yet. Instead, ask the caller to repeat or spell that identity detail.",

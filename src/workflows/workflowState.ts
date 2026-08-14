@@ -25,19 +25,6 @@ export interface WorkflowContext extends Record<string, unknown> {
   requiresExplicitConfirmation?: boolean;
 }
 
-interface LegacyAppointmentMetadata {
-  multipleFutureAppointments?: boolean;
-  alreadyConfirmed?: boolean | null;
-}
-
-interface LegacyAppointmentLookupResult {
-  workflowStatus?: string;
-  appointmentId?: unknown;
-  upcomingAppointments?: unknown;
-  collectedFields?: Record<string, unknown>;
-  metadata?: LegacyAppointmentMetadata;
-}
-
 interface WorkflowEnvelopeCandidate extends Record<string, unknown> {
   workflow?: unknown;
   state?: unknown;
@@ -49,8 +36,7 @@ interface WorkflowEnvelopeCandidate extends Record<string, unknown> {
 }
 
 export function extractWorkflowEnvelope(
-  toolResult: unknown,
-  fallbackWorkflow?: string
+  toolResult: unknown
 ): WorkflowEnvelope | undefined {
   const wrapper = asRecord(toolResult);
   const nestedWorkflowState = normalizeWorkflowEnvelopeCandidate(wrapper?.workflowState);
@@ -73,12 +59,7 @@ export function extractWorkflowEnvelope(
     return nestedDataWorkflowState;
   }
 
-  const toolName = typeof wrapper?.name === "string" ? wrapper.name : undefined;
-  if (!toolName) {
-    return undefined;
-  }
-
-  return legacyWorkflowEnvelope(toolName, wrapper?.data, normalizeWorkflowName(fallbackWorkflow));
+  return undefined;
 }
 
 function normalizeWorkflowEnvelopeCandidate(value: unknown): WorkflowEnvelope | undefined {
@@ -87,7 +68,7 @@ function normalizeWorkflowEnvelopeCandidate(value: unknown): WorkflowEnvelope | 
     return undefined;
   }
 
-  return {
+  return sanitizeWorkflowEnvelope({
     contractVersion: typeof candidate.contractVersion === "number" ? candidate.contractVersion : 1,
     workflow: normalizeWorkflowName(candidate.workflow) ?? candidate.workflow,
     state: candidate.state,
@@ -95,148 +76,26 @@ function normalizeWorkflowEnvelopeCandidate(value: unknown): WorkflowEnvelope | 
     allowedActions: normalizeStringArray(candidate.allowedActions),
     context: asWorkflowContext(candidate.context),
     failureReason: normalizeOptionalString(candidate.failureReason)
-  };
+  });
 }
 
-function legacyWorkflowEnvelope(
-  toolName: string,
-  data: unknown,
-  fallbackWorkflow?: string
-): WorkflowEnvelope | undefined {
-  if (toolName === "GET_NEXT_APPOINTMENT") {
-    return legacyNextAppointmentEnvelope(data, fallbackWorkflow);
+function sanitizeWorkflowEnvelope(envelope: WorkflowEnvelope): WorkflowEnvelope {
+  const context = envelope.context ? { ...envelope.context } : undefined;
+  if (!context) {
+    return envelope;
   }
 
-  if (toolName === "CONFIRM_APPOINTMENT") {
-    return legacyConfirmAppointmentEnvelope(data, fallbackWorkflow);
+  if (envelope.state === "SELECT_OPTION") {
+    context.selectedAppointmentId = null;
   }
 
-  return undefined;
-}
-
-function legacyNextAppointmentEnvelope(
-  data: unknown,
-  fallbackWorkflow?: string
-): WorkflowEnvelope | undefined {
-  const lookup = asRecord(data) as LegacyAppointmentLookupResult | undefined;
-  if (!lookup || typeof lookup.workflowStatus !== "string") {
-    return undefined;
-  }
-
-  const workflow = normalizeWorkflowName(fallbackWorkflow) ?? "CONFIRM_APPOINTMENT";
-  const context: WorkflowContext = {
-    patientVerified: false,
-    canDisclosePatientData: false,
-    appointments: [],
-    selectedAppointmentId: null,
-    requiresExplicitConfirmation: true
-  };
-  if (Array.isArray(lookup.upcomingAppointments)) {
-    context.appointments = lookup.upcomingAppointments;
-  }
-  if (lookup.appointmentId !== undefined) {
-    context.selectedAppointmentId = lookup.appointmentId;
-  }
-  if (lookup.metadata) {
-    context.metadata = lookup.metadata;
-    if (lookup.metadata.alreadyConfirmed !== undefined) {
-      context.alreadyConfirmed = lookup.metadata.alreadyConfirmed;
-    }
-  }
-  if (lookup.collectedFields) {
-    context.collectedFields = lookup.collectedFields;
-  }
-
-  switch (lookup.workflowStatus) {
-    case "NEEDS_FIRST_NAME":
-      return {
-        contractVersion: 1,
-        workflow,
-        state: "NEEDS_INPUT",
-        requiredField: "firstName",
-        allowedActions: ["GET_NEXT_APPOINTMENT"],
-        context
-      };
-    case "NEEDS_DOB":
-      return {
-        contractVersion: 1,
-        workflow,
-        state: "NEEDS_INPUT",
-        requiredField: "dob",
-        allowedActions: ["GET_NEXT_APPOINTMENT"],
-        context
-      };
-    case "PATIENT_AMBIGUOUS":
-      return {
-        contractVersion: 1,
-        workflow,
-        state: "HANDOFF_REQUIRED",
-        allowedActions: ["CREATE_HANDOFF_REQUEST", "TRANSFER_TO_STAFF"],
-        failureReason: "PATIENT_AMBIGUOUS",
-        context
-      };
-    case "NO_UPCOMING_APPOINTMENT":
-      return {
-        contractVersion: 1,
-        workflow,
-        state: "FAILED",
-        allowedActions: ["CREATE_HANDOFF_REQUEST"],
-        failureReason: "NO_UPCOMING_APPOINTMENT",
-        context: {
-          ...context,
-          patientVerified: true,
-          canDisclosePatientData: true
-        }
-      };
-    case "NEXT_APPOINTMENT_FOUND":
-      return {
-        contractVersion: 1,
-        workflow,
-        state: lookup.metadata?.multipleFutureAppointments ? "SELECT_OPTION" : "REQUIRES_CONFIRMATION",
-        allowedActions: ["CONFIRM_APPOINTMENT"],
-        context: {
-          ...context,
-          patientVerified: true,
-          canDisclosePatientData: true
-        }
-      };
-    case "PATIENT_NOT_FOUND":
-      return {
-        contractVersion: 1,
-        workflow,
-        state: "FAILED",
-        allowedActions: ["GET_NEXT_APPOINTMENT", "CREATE_HANDOFF_REQUEST"],
-        failureReason: "PATIENT_NOT_FOUND",
-        context
-      };
-    default:
-      return undefined;
-  }
-}
-
-function legacyConfirmAppointmentEnvelope(
-  data: unknown,
-  fallbackWorkflow?: string
-): WorkflowEnvelope | undefined {
-  const confirmation = asRecord(data);
-  if (!confirmation || typeof confirmation.workflowStatus !== "string") {
-    return undefined;
-  }
-
-  if (confirmation.workflowStatus !== "APPOINTMENT_CONFIRMED") {
-    return undefined;
+  if (envelope.state === "COMPLETED") {
+    delete context.appointments;
   }
 
   return {
-    contractVersion: 1,
-    workflow: normalizeWorkflowName(fallbackWorkflow) ?? "CONFIRM_APPOINTMENT",
-    state: "COMPLETED",
-    allowedActions: [],
-    context: {
-      appointmentId: confirmation.appointmentId,
-      alreadyConfirmed: confirmation.alreadyConfirmed === true,
-      confirmed: confirmation.confirmed === true
-    }
+    ...envelope,
+    context
   };
 }
 

@@ -162,7 +162,7 @@ export class AiReceptionistOrchestrator {
     });
     const toolResult = await this.tryExecuteTool(session, result.toolRequest);
     session.lastToolResults[result.toolRequest.name] = toolResult;
-    session.workflowState = extractWorkflowEnvelope(toolResult, session.currentIntent) ?? session.workflowState;
+    session.workflowState = extractWorkflowEnvelope(toolResult) ?? session.workflowState;
     logger.info("AI workflow state updated from tool result", {
       callSid: session.callSid,
       officeCode: session.officeCode,
