@@ -1,3 +1,5 @@
+import { WorkflowEnvelope } from "../workflows/workflowState.js";
+
 export type Speaker = "patient" | "assistant" | "system" | "tool";
 
 export interface TranscriptTurn {
@@ -33,6 +35,7 @@ export interface CallSession {
   officeContext?: OfficeContext;
   patientVerified: boolean;
   currentIntent?: string;
+  workflowState?: WorkflowEnvelope;
   transcript: TranscriptTurn[];
   collectedFields: Record<string, unknown>;
   lastToolResults: Record<string, unknown>;

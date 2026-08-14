@@ -3,6 +3,7 @@ import { SpringBootClient } from "../clients/springBootClient.js";
 import { CallSession, CallSessionStore } from "../sessions/callSession.js";
 import { ToolRegistry } from "../tools/toolRegistry.js";
 import { logger } from "../utils/logger.js";
+import { extractWorkflowEnvelope } from "../workflows/workflowState.js";
 
 export interface ConversationTurnOutcome {
   reply: string;
@@ -56,6 +57,15 @@ export class AiReceptionistOrchestrator {
     const firstModelStartedAt = Date.now();
     const firstResult = await this.modelClient.nextTurn(session, callerText);
     const firstModelDurationMs = Date.now() - firstModelStartedAt;
+    logger.info("AI first model result received", {
+      callSid: session.callSid,
+      officeCode: session.officeCode,
+      currentIntent: session.currentIntent,
+      requestedToolName: firstResult.toolRequest?.name,
+      hasCollectedFieldsUpdate: !!firstResult.collectedFields,
+      workflowStatePresent: !!session.workflowState,
+      workflowStateSummary: this.workflowStateSummary(session)
+    });
     const finalResult = await this.resolveModelResult(session, firstResult);
     const reply = finalResult.reply ?? "I am sorry, I could not complete that request.";
     const transferToStaff = this.shouldTransferToStaff(firstResult, finalResult);
@@ -68,6 +78,7 @@ export class AiReceptionistOrchestrator {
       finalIntent: finalResult.intent,
       shouldEndSession,
       shouldTransferToStaff: transferToStaff,
+      workflowStateSummary: this.workflowStateSummary(session),
       modelMarkedEndCall: finalResult.shouldEndCall === true,
       firstModelDurationMs,
       totalDurationMs: Date.now() - turnStartedAt
@@ -98,7 +109,8 @@ export class AiReceptionistOrchestrator {
         fromNumber: session.fromNumber,
         toNumber: session.toNumber,
         intent: finalResult.intent,
-        collectedFields: session.collectedFields
+        collectedFields: session.collectedFields,
+        workflowState: session.workflowState
       } : undefined
     };
   }
@@ -111,6 +123,7 @@ export class AiReceptionistOrchestrator {
       transcript: session.transcript,
       collectedFields: session.collectedFields,
       lastToolResults: session.lastToolResults,
+      workflowState: session.workflowState,
       summary
     });
     this.sessions.delete(session.callSid);
@@ -149,6 +162,15 @@ export class AiReceptionistOrchestrator {
     });
     const toolResult = await this.tryExecuteTool(session, result.toolRequest);
     session.lastToolResults[result.toolRequest.name] = toolResult;
+    session.workflowState = extractWorkflowEnvelope(toolResult, session.currentIntent) ?? session.workflowState;
+    logger.info("AI workflow state updated from tool result", {
+      callSid: session.callSid,
+      officeCode: session.officeCode,
+      toolName: result.toolRequest.name,
+      workflowStateSummary: this.workflowStateSummary(session),
+      selectedAppointmentId: this.selectedAppointmentId(session),
+      availableAppointmentCount: this.availableAppointmentCount(session)
+    });
     this.sessions.append(session, {
       speaker: "tool",
       text: JSON.stringify(toolResult),
@@ -170,6 +192,9 @@ export class AiReceptionistOrchestrator {
       callSid: session.callSid,
       officeCode: session.officeCode,
       toolName: result.toolRequest.name,
+      replyIntent: finalResult.intent,
+      requestedToolName: finalResult.toolRequest?.name,
+      workflowStateSummary: this.workflowStateSummary(session),
       durationMs: Date.now() - followupModelStartedAt
     });
     return finalResult;
@@ -189,6 +214,7 @@ export class AiReceptionistOrchestrator {
         callSid: session.callSid,
         officeCode: session.officeCode,
         toolName: toolRequest.name,
+        workflowStateSummary: this.workflowStateSummary(session),
         error: String(error)
       });
       return {
@@ -224,6 +250,7 @@ export class AiReceptionistOrchestrator {
     transcript: unknown[];
     collectedFields: Record<string, unknown>;
     lastToolResults: Record<string, unknown>;
+    workflowState: CallSession["workflowState"];
     summary?: Awaited<ReturnType<ModelClient["summarizeCall"]>>;
   }): Promise<void> {
     try {
@@ -248,5 +275,28 @@ export class AiReceptionistOrchestrator {
       });
       return undefined;
     }
+  }
+
+  private workflowStateSummary(session: CallSession): Record<string, unknown> | undefined {
+    if (!session.workflowState) {
+      return undefined;
+    }
+
+    return {
+      workflow: session.workflowState.workflow,
+      state: session.workflowState.state,
+      requiredField: session.workflowState.requiredField,
+      allowedActions: session.workflowState.allowedActions,
+      failureReason: session.workflowState.failureReason
+    };
+  }
+
+  private selectedAppointmentId(session: CallSession): unknown {
+    return session.workflowState?.context?.selectedAppointmentId;
+  }
+
+  private availableAppointmentCount(session: CallSession): number | undefined {
+    const appointments = session.workflowState?.context?.appointments;
+    return Array.isArray(appointments) ? appointments.length : undefined;
   }
 }

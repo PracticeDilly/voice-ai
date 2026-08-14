@@ -1,5 +1,6 @@
 import { config } from "../config/env.js";
 import { OfficeContext } from "../sessions/callSession.js";
+import { WorkflowEnvelope } from "../workflows/workflowState.js";
 
 export interface ToolRequest {
   name: string;
@@ -56,6 +57,7 @@ export class SpringBootClient {
     transcript: unknown[];
     collectedFields: Record<string, unknown>;
     lastToolResults: Record<string, unknown>;
+    workflowState?: WorkflowEnvelope;
     summary?: CallSummary;
   }): Promise<void> {
     await this.request<void>("/voice/ai/calls/complete", {
@@ -66,6 +68,7 @@ export class SpringBootClient {
         transcript: input.transcript,
         collectedFields: input.collectedFields,
         lastToolResults: input.lastToolResults,
+        workflowState: input.workflowState,
         summaryText: input.summary?.summaryText,
         primaryIntent: input.summary?.primaryIntent,
         staffFollowupRequired: input.summary?.staffFollowupRequired,
