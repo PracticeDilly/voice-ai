@@ -1,13 +1,13 @@
 import { WebSocket } from "ws";
+import { CallSession, CallSessionStore } from "../calls/callSession.js";
 import { config } from "../config/env.js";
-import { AiReceptionistOrchestrator } from "../orchestration/aiReceptionistOrchestrator.js";
-import { CallSession, CallSessionStore } from "../sessions/callSession.js";
+import { AiReceptionistOrchestrator } from "../conversation/aiReceptionistOrchestrator.js";
+import { logger } from "../utils/logger.js";
 import {
   ConversationRelayMessage,
   ConversationRelayResponse,
   ConversationRelaySetupMessage
-} from "../types/conversationRelay.js";
-import { logger } from "../utils/logger.js";
+} from "./conversationRelayTypes.js";
 
 interface CommittedPrompt {
   turnId: number;

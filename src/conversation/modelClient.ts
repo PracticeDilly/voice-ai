@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { config } from "../config/env.js";
-import { CallSession } from "../sessions/callSession.js";
-import { ToolRequest } from "../clients/springBootClient.js";
+import { ToolRequest } from "../backend/springBootClient.js";
+import { CallSession } from "../calls/callSession.js";
 
 export interface ModelTurnResult {
   reply?: string;
@@ -130,6 +130,11 @@ export class ModelClient {
       "Use workflowState.state, workflowState.requiredField, workflowState.allowedActions, and workflowState.context to decide the next safe step in the conversation.",
       "When workflowState.state is NEEDS_INPUT, ask naturally for workflowState.requiredField only and preserve previously collected values in collectedFields.",
       "When workflowState.context includes appointments, use that list plus conversation history to interpret references such as the other one, the second one, the later one, or references by date, time, or doctor.",
+      "Keep the caller's active intent separate from prerequisite tool calls; using a lookup tool must not replace the workflow the caller requested.",
+      "For read-only intents, answer from the backend's singular resolved result and do not propose or initiate a state-changing action.",
+      "For state-changing intents, follow workflowState.allowedActions and use workflowState.context.selectedAppointmentId when the backend has resolved an option.",
+      "Do not request an action when workflowState.context.alreadyConfirmed is true or when that action is absent from workflowState.allowedActions.",
+      "Reuse recent resolved context only for an unambiguous reference; otherwise obtain fresh backend state.",
       "When workflowState.state is SELECT_OPTION, help the caller identify exactly one option from the backend-provided list before requesting an execution tool.",
       "When workflowState.state is SELECT_OPTION, do not treat workflowState.context.selectedAppointmentId as already chosen even if it is present. The caller still needs to pick one exact appointment.",
       "When workflowState.state is REQUIRES_CONFIRMATION, restate the selected option naturally and obtain clear confirmation before requesting the execution tool.",
@@ -137,7 +142,7 @@ export class ModelClient {
       "When requesting GET_NEXT_APPOINTMENT, include any known relevant identity fields in toolRequest.arguments. Use firstName and dob when available. It is fine to include lastName if the caller volunteered it, but do not ask for lastName unless the backend contract explicitly requires it.",
       "When requesting CONFIRM_APPOINTMENT, include appointmentId from workflowState.context.selectedAppointmentId when available, or from the clearly selected backend-provided appointment.",
       "When workflowState.state is COMPLETED, explain the successful result naturally and do not request another execution tool unless the caller clearly starts a new task.",
-      "When workflowState.state is COMPLETED, ignore any older appointment list from previous turns. If the caller wants to work on another appointment, start that as a fresh lookup rather than confirming from stale context.",
+      "When workflowState.state is COMPLETED, do not reuse stale option lists. Reuse the singular resolved result only for an unambiguous immediate reference; otherwise obtain fresh backend state.",
       "When workflowState.state is FAILED or HANDOFF_REQUIRED, follow the backend-directed failure or handoff path rather than inventing a new workflow.",
       "Do not disclose patient-specific information unless the backend tool result indicates the patient was resolved or verified.",
       "If the caller's spoken identity detail sounds cut off, unclear, fragmented, or mostly filler words, do not say no patient was found yet. Instead, ask the caller to repeat or spell that identity detail.",

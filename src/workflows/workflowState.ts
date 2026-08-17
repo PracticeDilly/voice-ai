@@ -23,6 +23,7 @@ export interface WorkflowContext extends Record<string, unknown> {
   appointments?: unknown[];
   selectedAppointmentId?: unknown;
   requiresExplicitConfirmation?: boolean;
+  alreadyConfirmed?: boolean;
 }
 
 interface WorkflowEnvelopeCandidate extends Record<string, unknown> {

@@ -1,9 +1,9 @@
-import { ModelClient, ModelTurnResult } from "../ai/modelClient.js";
-import { SpringBootClient } from "../clients/springBootClient.js";
-import { CallSession, CallSessionStore } from "../sessions/callSession.js";
-import { ToolRegistry } from "../tools/toolRegistry.js";
+import { SpringBootClient } from "../backend/springBootClient.js";
+import { CallSession, CallSessionStore } from "../calls/callSession.js";
+import { ToolExecutor } from "../tools/toolExecutor.js";
 import { logger } from "../utils/logger.js";
 import { extractWorkflowEnvelope } from "../workflows/workflowState.js";
+import { ModelClient, ModelTurnResult } from "./modelClient.js";
 
 export interface ConversationTurnOutcome {
   reply: string;
@@ -15,7 +15,7 @@ export interface ConversationTurnOutcome {
 
 export class AiReceptionistOrchestrator {
   private readonly springBootClient = new SpringBootClient();
-  private readonly toolRegistry = new ToolRegistry(this.springBootClient);
+  private readonly toolExecutor = new ToolExecutor(this.springBootClient);
   private readonly modelClient = new ModelClient();
 
   constructor(private readonly sessions: CallSessionStore) {}
@@ -66,7 +66,24 @@ export class AiReceptionistOrchestrator {
       workflowStatePresent: !!session.workflowState,
       workflowStateSummary: this.workflowStateSummary(session)
     });
+
+    // Make same-turn model output available while resolving prerequisite tools.
+    if (firstResult.intent) {
+      session.currentIntent = firstResult.intent;
+    }
+    if (firstResult.collectedFields) {
+      session.collectedFields = {
+        ...session.collectedFields,
+        ...firstResult.collectedFields
+      };
+    }
+
     const finalResult = await this.resolveModelResult(session, firstResult);
+    if (firstResult.toolRequest
+      && firstResult.intent
+      && !this.isTerminalIntent(finalResult.intent)) {
+      finalResult.intent = firstResult.intent;
+    }
     const reply = finalResult.reply ?? "I am sorry, I could not complete that request.";
     const transferToStaff = this.shouldTransferToStaff(firstResult, finalResult);
     const shouldEndSession = transferToStaff || finalResult.shouldEndCall === true;
@@ -206,9 +223,13 @@ export class AiReceptionistOrchestrator {
       || finalResult.intent === "TRANSFER_TO_STAFF";
   }
 
+  private isTerminalIntent(intent: string | undefined): boolean {
+    return intent === "TRANSFER_TO_STAFF" || intent === "HANDOFF_TO_STAFF";
+  }
+
   private async tryExecuteTool(session: CallSession, toolRequest: NonNullable<ModelTurnResult["toolRequest"]>) {
     try {
-      return await this.toolRegistry.execute(session, toolRequest);
+      return await this.toolExecutor.execute(session, toolRequest);
     } catch (error) {
       logger.warn("Unable to execute AI tool; continuing with failure result", {
         callSid: session.callSid,

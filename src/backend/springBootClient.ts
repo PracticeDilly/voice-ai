@@ -1,5 +1,5 @@
 import { config } from "../config/env.js";
-import { OfficeContext } from "../sessions/callSession.js";
+import { OfficeContext } from "../calls/callSession.js";
 import { WorkflowEnvelope } from "../workflows/workflowState.js";
 
 export interface ToolRequest {

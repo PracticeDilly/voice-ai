@@ -15,6 +15,23 @@ This application owns the live AI call session:
 
 The AI model does not call Spring Boot, DocClient, Twilio, or the database directly. Node.js is the orchestrator.
 
+## Project Structure
+
+```text
+src/
+  appointments/  Next-appointment and confirmation workflows
+  backend/       Spring Boot API client and contracts
+  calls/         Per-call session state
+  conversation/  Model interaction and conversation orchestration
+  tools/         Approved tool execution
+  twilio/        Conversation Relay transport and message types
+  workflows/     Backend workflow contract parsing
+  config/        Environment configuration
+  utils/         Shared infrastructure helpers
+```
+
+Business actions are validated before tool execution. Conversation code coordinates model turns, while Spring Boot remains authoritative for workflow state and business mutations.
+
 ## Local Setup
 
 ```bash
