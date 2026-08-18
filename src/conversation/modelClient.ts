@@ -44,7 +44,8 @@ export class ModelClient {
             lastAssistantReply: this.findLastAssistantReply(session),
             collectedFields: session.collectedFields,
             lastToolResults: session.lastToolResults,
-            pendingActions: session.pendingActions
+            pendingActions: session.pendingActions,
+            appointmentSelections: session.appointmentSelections
           })
         }
       ]
@@ -75,7 +76,8 @@ export class ModelClient {
             lastAssistantReply: this.findLastAssistantReply(session),
             lastCallerReply: this.findLastCallerReply(session),
             collectedFields: session.collectedFields,
-            pendingActions: session.pendingActions
+            pendingActions: session.pendingActions,
+            appointmentSelections: session.appointmentSelections
           })
         }
       ]
@@ -111,6 +113,7 @@ export class ModelClient {
             collectedFields: session.collectedFields,
             lastToolResults: session.lastToolResults,
             pendingActions: session.pendingActions,
+            appointmentSelections: session.appointmentSelections,
             transcript: session.transcript
           })
         }

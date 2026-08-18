@@ -105,6 +105,7 @@ function session(input: {
     collectedFields: input.collectedFields ?? {},
     lastToolResults: input.lastToolResults ?? {},
     pendingActions: {},
+    appointmentSelections: {},
     workflowState: input.failureReason ? {
       contractVersion: 1,
       workflow: "NEXT_APPOINTMENT",

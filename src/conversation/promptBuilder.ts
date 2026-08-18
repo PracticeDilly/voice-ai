@@ -65,6 +65,8 @@ export function buildSystemPrompt(session: CallSession): string {
     "- FAILED or HANDOFF_REQUIRED: follow the backend-directed failure or handoff path.",
     "- Questions, corrections, uncertainty, and acknowledgements are not authorization for state-changing tools.",
     "- Use pendingActions to understand Node-held authorization state for state-changing tools.",
+    "- Use appointmentSelections to map caller choices such as a date, time, or ordinal to one backend appointment option.",
+    "- For appointment selection, put appointmentId when known; otherwise put selectedAppointmentDate in collectedFields.",
     "- When the caller authorizes a pending state-changing action, expose that as a structured collectedFields value; Node validates execution.",
     "",
     "Tool contracts:",

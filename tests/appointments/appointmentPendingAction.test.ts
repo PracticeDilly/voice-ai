@@ -4,6 +4,7 @@ import {
   consumePendingAppointmentConfirmation,
   prepareAppointmentConfirmation,
   promotePendingAppointmentConfirmation,
+  syncAppointmentConfirmationOptionsFromLastLookup,
   syncPendingAppointmentConfirmation
 } from "../../src/appointments/appointmentPendingAction.js";
 import { CallSession } from "../../src/calls/callSession.js";
@@ -37,6 +38,73 @@ test("does not create pending confirmation for read-only next appointment intent
   }, "NEXT_APPOINTMENT");
 
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT, undefined);
+});
+
+test("stores multiple confirmable options without selecting the first appointment", () => {
+  const callSession = session();
+
+  syncPendingAppointmentConfirmation(callSession, "GET_NEXT_APPOINTMENT", {
+    name: "GET_NEXT_APPOINTMENT",
+    ok: true,
+    data: {
+      upcomingAppointments: [
+        appointment(501, "9:00 AM, Thu, Aug 20 2026"),
+        appointment(502, "9:20 AM, Fri, Aug 21 2026"),
+        appointment(503, "10:00 AM, Mon, Aug 24 2026")
+      ]
+    }
+  }, "CONFIRM_APPOINTMENT");
+
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT, undefined);
+  assert.deepEqual(
+    callSession.appointmentSelections.CONFIRM_APPOINTMENT?.options.map((option) => option.appointmentId),
+    [501, 502, 503]
+  );
+});
+
+test("selects a different appointment from stored confirmable options before confirmation", () => {
+  const callSession = session();
+  callSession.currentIntent = "CONFIRM_APPOINTMENT";
+  callSession.pendingActions.CONFIRM_APPOINTMENT = {
+    appointmentId: 501,
+    status: "AWAITING_CALLER_CONFIRMATION",
+    createdAt: "2026-08-17T00:00:00.000Z"
+  };
+  callSession.appointmentSelections.CONFIRM_APPOINTMENT = {
+    createdAt: "2026-08-17T00:00:00.000Z",
+    options: [
+      option(501, "9:00 AM, Thu, Aug 20 2026"),
+      option(502, "9:20 AM, Fri, Aug 21 2026")
+    ]
+  };
+
+  promotePendingAppointmentConfirmation(callSession, {
+    name: "CONFIRM_APPOINTMENT",
+    arguments: {
+      appointmentId: 502
+    }
+  });
+
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT.appointmentId, 502);
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT.status, "AWAITING_CALLER_CONFIRMATION");
+});
+
+test("selects a confirmable appointment by structured appointment date", () => {
+  const callSession = session();
+  callSession.currentIntent = "CONFIRM_APPOINTMENT";
+  callSession.collectedFields.selectedAppointmentDate = "9:20 AM, Fri, Aug 21 2026";
+  callSession.appointmentSelections.CONFIRM_APPOINTMENT = {
+    createdAt: "2026-08-17T00:00:00.000Z",
+    options: [
+      option(501, "9:00 AM, Thu, Aug 20 2026"),
+      option(502, "9:20 AM, Fri, Aug 21 2026")
+    ]
+  };
+
+  promotePendingAppointmentConfirmation(callSession);
+
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.appointmentId, 502);
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "AWAITING_CALLER_CONFIRMATION");
 });
 
 test("does not create pending confirmation for non-confirm intent names containing confirm text", () => {
@@ -125,6 +193,46 @@ test("adds explicit confirmation flag after pending confirmation is ready", () =
   assert.equal(prepared.arguments.callerConfirmedSelectedAppointment, true);
 });
 
+test("adds pending appointment id when the model selected by date", () => {
+  const callSession = session();
+  callSession.pendingActions.CONFIRM_APPOINTMENT = {
+    appointmentId: 502,
+    status: "READY_TO_EXECUTE",
+    createdAt: "2026-08-17T00:00:00.000Z"
+  };
+
+  const prepared = prepareAppointmentConfirmation(callSession, {
+    name: "CONFIRM_APPOINTMENT",
+    arguments: {}
+  });
+
+  assert.equal(prepared.arguments.appointmentId, 502);
+  assert.equal(prepared.arguments.callerConfirmedSelectedAppointment, true);
+});
+
+test("hydrates confirmation options from the last read-only lookup when caller switches intent", () => {
+  const callSession = session();
+  callSession.currentIntent = "CONFIRM_APPOINTMENT";
+  callSession.lastToolResults.GET_NEXT_APPOINTMENT = {
+    name: "GET_NEXT_APPOINTMENT",
+    ok: true,
+    data: {
+      upcomingAppointments: [
+        appointment(501, "9:00 AM, Thu, Aug 20 2026"),
+        appointment(502, "9:20 AM, Fri, Aug 21 2026")
+      ]
+    }
+  };
+
+  syncAppointmentConfirmationOptionsFromLastLookup(callSession);
+
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT, undefined);
+  assert.deepEqual(
+    callSession.appointmentSelections.CONFIRM_APPOINTMENT?.options.map((item) => item.appointmentId),
+    [501, 502]
+  );
+});
+
 function session(): CallSession {
   return {
     callSid: "CA-test",
@@ -135,6 +243,23 @@ function session(): CallSession {
     transcript: [],
     collectedFields: {},
     lastToolResults: {},
-    pendingActions: {}
+    pendingActions: {},
+    appointmentSelections: {}
+  };
+}
+
+function appointment(appointmentId: number, appointmentDate: string): Record<string, unknown> {
+  return {
+    appointmentId,
+    appointmentDate,
+    doctorName: "Dr. David Johnson",
+    alreadyConfirmed: false
+  };
+}
+
+function option(appointmentId: number, appointmentDate: string) {
+  return {
+    ...appointment(appointmentId, appointmentDate),
+    source: appointment(appointmentId, appointmentDate)
   };
 }

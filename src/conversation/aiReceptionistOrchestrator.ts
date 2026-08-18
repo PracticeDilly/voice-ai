@@ -4,6 +4,7 @@ import { invalidateAppointmentLookupCacheAfterConfirmation } from "../appointmen
 import {
   consumePendingAppointmentConfirmation,
   promotePendingAppointmentConfirmation,
+  syncAppointmentConfirmationOptionsFromLastLookup,
   syncPendingAppointmentConfirmation
 } from "../appointments/appointmentPendingAction.js";
 import {
@@ -88,6 +89,7 @@ export class AiReceptionistOrchestrator {
         ...firstResult.collectedFields
       };
     }
+    syncAppointmentConfirmationOptionsFromLastLookup(session);
     promotePendingAppointmentConfirmation(session);
 
     const policyAdjustedResult = applyDeterministicToolPolicy(session, firstResult);

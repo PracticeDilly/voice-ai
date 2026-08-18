@@ -61,6 +61,7 @@ function session(): CallSession {
     transcript: [],
     collectedFields: {},
     lastToolResults: {},
-    pendingActions: {}
+    pendingActions: {},
+    appointmentSelections: {}
   };
 }

@@ -39,6 +39,21 @@ export interface PendingActions {
   };
 }
 
+export interface AppointmentSelectionOption {
+  appointmentId: unknown;
+  appointmentDate?: string;
+  doctorName?: string;
+  alreadyConfirmed?: boolean;
+  source: Record<string, unknown>;
+}
+
+export interface AppointmentSelections {
+  CONFIRM_APPOINTMENT?: {
+    options: AppointmentSelectionOption[];
+    createdAt: string;
+  };
+}
+
 export interface CallSession {
   callSid: string;
   accountSid?: string;
@@ -55,6 +70,7 @@ export interface CallSession {
   collectedFields: Record<string, unknown>;
   lastToolResults: Record<string, unknown>;
   pendingActions: PendingActions;
+  appointmentSelections: AppointmentSelections;
 }
 
 export class CallSessionStore {
@@ -84,7 +100,8 @@ export class CallSessionStore {
       transcript: [],
       collectedFields: {},
       lastToolResults: {},
-      pendingActions: {}
+      pendingActions: {},
+      appointmentSelections: {}
     };
     this.sessions.set(input.callSid, session);
     return session;

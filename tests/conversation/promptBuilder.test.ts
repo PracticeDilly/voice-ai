@@ -24,6 +24,7 @@ function session(): CallSession {
     collectedFields: {},
     lastToolResults: {},
     pendingActions: {},
+    appointmentSelections: {},
     officeContext: {
       officeCode: "OFC001",
       officeName: "Test Dental",

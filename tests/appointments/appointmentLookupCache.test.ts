@@ -47,6 +47,7 @@ function session(): CallSession {
     transcript: [],
     collectedFields: {},
     pendingActions: {},
+    appointmentSelections: {},
     lastToolResults: {
       GET_NEXT_APPOINTMENT: {
         ok: true,

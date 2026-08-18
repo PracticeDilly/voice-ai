@@ -31,7 +31,8 @@ export class ToolExecutor {
       };
     }
 
-    const policyError = validateAppointmentConfirmation(session, tool);
+    const preparedAppointmentTool = prepareAppointmentConfirmation(session, tool);
+    const policyError = validateAppointmentConfirmation(session, preparedAppointmentTool);
     if (policyError) {
       return {
         name: tool.name,
@@ -40,7 +41,7 @@ export class ToolExecutor {
       };
     }
 
-    const handoffPolicyError = validateHandoffRequest(session, tool);
+    const handoffPolicyError = validateHandoffRequest(session, preparedAppointmentTool);
     if (handoffPolicyError) {
       return {
         name: tool.name,
@@ -49,7 +50,7 @@ export class ToolExecutor {
       };
     }
 
-    const preparedTool = prepareNextAppointmentLookup(session, prepareAppointmentConfirmation(session, tool));
+    const preparedTool = prepareNextAppointmentLookup(session, preparedAppointmentTool);
     return this.springBootClient.executeTool(session.callSid, session.officeCode, preparedTool);
   }
 }

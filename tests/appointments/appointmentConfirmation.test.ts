@@ -100,6 +100,7 @@ function session(input: {
         createdAt: "2026-08-17T00:00:00.000Z"
       }
     } : {},
+    appointmentSelections: {},
     workflowState: {
       contractVersion: 1,
       workflow: input.workflow,
