@@ -24,6 +24,21 @@ export interface OfficeContext {
   facts?: string[];
 }
 
+export type PendingActionStatus = "AWAITING_CALLER_CONFIRMATION" | "READY_TO_EXECUTE";
+
+export interface PendingActions {
+  CONFIRM_APPOINTMENT?: {
+    appointmentId: unknown;
+    status: PendingActionStatus;
+    createdAt: string;
+  };
+  CREATE_HANDOFF_REQUEST?: {
+    status: "READY_TO_EXECUTE";
+    consentSource: "CALLER_EXPLICIT_REQUEST" | "CALLER_ACCEPTED_FOLLOWUP_OFFER";
+    createdAt: string;
+  };
+}
+
 export interface CallSession {
   callSid: string;
   accountSid?: string;
@@ -39,6 +54,7 @@ export interface CallSession {
   transcript: TranscriptTurn[];
   collectedFields: Record<string, unknown>;
   lastToolResults: Record<string, unknown>;
+  pendingActions: PendingActions;
 }
 
 export class CallSessionStore {
@@ -67,7 +83,8 @@ export class CallSessionStore {
       patientVerified: false,
       transcript: [],
       collectedFields: {},
-      lastToolResults: {}
+      lastToolResults: {},
+      pendingActions: {}
     };
     this.sessions.set(input.callSid, session);
     return session;

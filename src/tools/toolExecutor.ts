@@ -1,7 +1,9 @@
 import { validateAppointmentConfirmation } from "../appointments/appointmentConfirmation.js";
+import { prepareAppointmentConfirmation } from "../appointments/appointmentPendingAction.js";
 import { prepareNextAppointmentLookup } from "../appointments/nextAppointment.js";
 import { SpringBootClient, ToolRequest, ToolResult } from "../backend/springBootClient.js";
 import { CallSession } from "../calls/callSession.js";
+import { validateHandoffRequest } from "../handoff/handoffRequest.js";
 
 const allowedTools = new Set([
   "VERIFY_PATIENT",
@@ -38,7 +40,16 @@ export class ToolExecutor {
       };
     }
 
-    const preparedTool = prepareNextAppointmentLookup(session, tool);
+    const handoffPolicyError = validateHandoffRequest(session, tool);
+    if (handoffPolicyError) {
+      return {
+        name: tool.name,
+        ok: false,
+        error: handoffPolicyError
+      };
+    }
+
+    const preparedTool = prepareNextAppointmentLookup(session, prepareAppointmentConfirmation(session, tool));
     return this.springBootClient.executeTool(session.callSid, session.officeCode, preparedTool);
   }
 }

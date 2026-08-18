@@ -1,23 +1,25 @@
 import { ToolRequest } from "../backend/springBootClient.js";
 import { CallSession } from "../calls/callSession.js";
+import { pendingAppointmentConfirmationError } from "./appointmentPendingAction.js";
 
 export function validateAppointmentConfirmation(session: CallSession, tool: ToolRequest): string | undefined {
   if (tool.name !== "CONFIRM_APPOINTMENT") {
     return undefined;
   }
 
-  const workflow = session.workflowState;
-  if (!workflow?.allowedActions?.includes(tool.name)) {
-    return "Appointment confirmation is not allowed in the current workflow state.";
+  const pendingError = pendingAppointmentConfirmationError(session, tool);
+  if (pendingError) {
+    return pendingError;
   }
 
-  if (workflow.context?.alreadyConfirmed === true) {
+  const workflow = session.workflowState;
+  if (workflow?.context?.alreadyConfirmed === true) {
     return "The selected appointment is already confirmed.";
   }
 
-  const selectedAppointmentId = normalizeAppointmentId(workflow.context?.selectedAppointmentId);
+  const selectedAppointmentId = normalizeAppointmentId(workflow?.context?.selectedAppointmentId);
   const requestedAppointmentId = normalizeAppointmentId(tool.arguments?.appointmentId);
-  if (!selectedAppointmentId || !requestedAppointmentId || selectedAppointmentId !== requestedAppointmentId) {
+  if (selectedAppointmentId && (!requestedAppointmentId || selectedAppointmentId !== requestedAppointmentId)) {
     return "The requested appointment does not match the appointment selected by the backend.";
   }
 

@@ -1,9 +1,20 @@
 import { SpringBootClient } from "../backend/springBootClient.js";
 import { CallSession, CallSessionStore } from "../calls/callSession.js";
+import { invalidateAppointmentLookupCacheAfterConfirmation } from "../appointments/appointmentLookupCache.js";
+import {
+  consumePendingAppointmentConfirmation,
+  promotePendingAppointmentConfirmation,
+  syncPendingAppointmentConfirmation
+} from "../appointments/appointmentPendingAction.js";
+import {
+  consumePendingHandoffRequest,
+  syncPendingHandoffRequest
+} from "../handoff/handoffPendingAction.js";
 import { ToolExecutor } from "../tools/toolExecutor.js";
 import { logger } from "../utils/logger.js";
 import { extractWorkflowEnvelope } from "../workflows/workflowState.js";
 import { ModelClient, ModelTurnResult } from "./modelClient.js";
+import { applyDeterministicToolPolicy } from "./toolPolicy.js";
 
 export interface ConversationTurnOutcome {
   reply: string;
@@ -77,8 +88,10 @@ export class AiReceptionistOrchestrator {
         ...firstResult.collectedFields
       };
     }
+    promotePendingAppointmentConfirmation(session);
 
-    const finalResult = await this.resolveModelResult(session, firstResult);
+    const policyAdjustedResult = applyDeterministicToolPolicy(session, firstResult);
+    const finalResult = await this.resolveModelResult(session, policyAdjustedResult);
     if (firstResult.toolRequest
       && firstResult.intent
       && !this.isTerminalIntent(finalResult.intent)) {
@@ -169,6 +182,8 @@ export class AiReceptionistOrchestrator {
     if (!result.toolRequest) {
       return result;
     }
+    promotePendingAppointmentConfirmation(session, result.toolRequest);
+    syncPendingHandoffRequest(session, result.toolRequest);
 
     const toolStartedAt = Date.now();
     logger.info("AI tool request started", {
@@ -180,6 +195,10 @@ export class AiReceptionistOrchestrator {
     const toolResult = await this.tryExecuteTool(session, result.toolRequest);
     session.lastToolResults[result.toolRequest.name] = toolResult;
     session.workflowState = extractWorkflowEnvelope(toolResult) ?? session.workflowState;
+    syncPendingAppointmentConfirmation(session, result.toolRequest.name, toolResult, session.currentIntent);
+    invalidateAppointmentLookupCacheAfterConfirmation(session, result.toolRequest.name, toolResult);
+    consumePendingAppointmentConfirmation(session, result.toolRequest.name, toolResult);
+    consumePendingHandoffRequest(session, result.toolRequest.name, toolResult);
     logger.info("AI workflow state updated from tool result", {
       callSid: session.callSid,
       officeCode: session.officeCode,
@@ -320,4 +339,5 @@ export class AiReceptionistOrchestrator {
     const appointments = session.workflowState?.context?.appointments;
     return Array.isArray(appointments) ? appointments.length : undefined;
   }
+
 }

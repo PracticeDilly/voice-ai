@@ -34,6 +34,7 @@ function session(): CallSession {
     patientVerified: false,
     transcript: [],
     collectedFields: {},
-    lastToolResults: {}
+    lastToolResults: {},
+    pendingActions: {}
   };
 }
