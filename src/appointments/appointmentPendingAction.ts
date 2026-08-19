@@ -1,5 +1,6 @@
 import { ToolRequest, ToolResult } from "../backend/springBootClient.js";
 import { AppointmentSelectionOption, CallSession } from "../calls/callSession.js";
+import { normalizeAppointmentId } from "./appointmentId.js";
 
 export function syncPendingAppointmentConfirmation(
   session: CallSession,
@@ -263,17 +264,4 @@ function normalizedText(value: unknown): string | undefined {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, " ");
-}
-
-function normalizeAppointmentId(value: unknown): string | undefined {
-  if (typeof value === "number" && Number.isSafeInteger(value) && value > 0) {
-    return String(value);
-  }
-
-  if (typeof value === "string" && /^\d+$/.test(value.trim())) {
-    const normalized = BigInt(value.trim());
-    return normalized > 0n ? normalized.toString() : undefined;
-  }
-
-  return undefined;
 }

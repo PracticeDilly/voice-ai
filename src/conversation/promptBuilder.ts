@@ -1,6 +1,6 @@
 import { CallSession } from "../calls/callSession.js";
 
-const defaultOfficeTimezone = "America/Los_Angeles";
+const defaultOfficeTimezone = process.env.AI_DEFAULT_OFFICE_TIMEZONE ?? "America/Los_Angeles";
 
 interface ToolContract {
   name: string;

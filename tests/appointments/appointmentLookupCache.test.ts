@@ -43,7 +43,6 @@ function session(): CallSession {
     officeCode: "OFC001",
     startedAt: "2026-08-17T00:00:00.000Z",
     lastActivityAt: "2026-08-17T00:00:00.000Z",
-    patientVerified: true,
     transcript: [],
     collectedFields: {},
     pendingActions: {},

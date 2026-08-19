@@ -4,7 +4,7 @@ import { applyDeterministicToolPolicy } from "../../src/conversation/toolPolicy.
 import { CallSession } from "../../src/calls/callSession.js";
 
 test("forces fresh appointment lookup for follow-up questions after confirmation", () => {
-  const result = applyDeterministicToolPolicy(session({
+  const decision = applyDeterministicToolPolicy(session({
     collectedFields: {
       firstName: "Kim",
       dob: "10/18/1999"
@@ -16,6 +16,7 @@ test("forces fresh appointment lookup for follow-up questions after confirmation
     intent: "GET_NEXT_APPOINTMENT",
     reply: "They are all unconfirmed."
   });
+  const result = decision.overrideResult;
 
   assert.equal(result.toolRequest?.name, "GET_NEXT_APPOINTMENT");
   assert.deepEqual(result.toolRequest?.arguments, {
@@ -30,18 +31,19 @@ test("does not force lookup when fresh appointment data is already present", () 
     reply: "You have one unconfirmed appointment."
   };
 
-  const result = applyDeterministicToolPolicy(session({
+  const decision = applyDeterministicToolPolicy(session({
     lastToolResults: {
       CONFIRM_APPOINTMENT: { ok: true },
       GET_NEXT_APPOINTMENT: { ok: true }
     }
   }), original);
+  const result = decision.overrideResult;
 
   assert.equal(result, original);
 });
 
 test("retries appointment lookup instead of creating handoff when patient corrects identity", () => {
-  const result = applyDeterministicToolPolicy(session({
+  const decision = applyDeterministicToolPolicy(session({
     failureReason: "PATIENT_NOT_FOUND"
   }), {
     collectedFields: {
@@ -53,6 +55,7 @@ test("retries appointment lookup instead of creating handoff when patient correc
       arguments: {}
     }
   });
+  const result = decision.overrideResult;
 
   assert.equal(result.toolRequest?.name, "GET_NEXT_APPOINTMENT");
   assert.deepEqual(result.toolRequest?.arguments, {
@@ -69,9 +72,10 @@ test("keeps handoff when caller did not provide corrected identity", () => {
     }
   };
 
-  const result = applyDeterministicToolPolicy(session({
+  const decision = applyDeterministicToolPolicy(session({
     failureReason: "PATIENT_NOT_FOUND"
   }), original);
+  const result = decision.overrideResult;
 
   assert.equal(result, original);
 });
@@ -81,31 +85,104 @@ test("does not infer appointment lookup from reply text alone", () => {
     reply: "Can you tell me which ones are unconfirmed?"
   };
 
-  const result = applyDeterministicToolPolicy(session({
+  const decision = applyDeterministicToolPolicy(session({
     lastToolResults: {
       CONFIRM_APPOINTMENT: { ok: true }
     }
   }), original);
+  const result = decision.overrideResult;
 
   assert.equal(result, original);
+});
+
+test("prefers confirmation execution over fallback when confirmation is ready", () => {
+  const decision = applyDeterministicToolPolicy(session({
+    pendingAppointmentId: 502,
+    pendingStatus: "READY_TO_EXECUTE"
+  }), {
+    toolRequest: {
+      name: "TRANSFER_TO_STAFF",
+      arguments: {}
+    }
+  });
+  const result = decision.overrideResult;
+
+  assert.equal(result.toolRequest?.name, "CONFIRM_APPOINTMENT");
+  assert.equal(result.toolRequest?.arguments.appointmentId, 502);
+  assert.equal(result.toolRequest?.arguments.callerConfirmedSelectedAppointment, true);
+});
+
+test("prefers confirmation flow over fallback when a selected appointment exists", () => {
+  const decision = applyDeterministicToolPolicy(session({
+    pendingAppointmentId: 503,
+    pendingStatus: "AWAITING_CALLER_CONFIRMATION",
+    selectionOptions: [
+      option(502, "9:20 AM on Friday, August 21, 2026"),
+      option(503, "10:00 AM on Monday, August 24, 2026")
+    ]
+  }), {
+    toolRequest: {
+      name: "CREATE_HANDOFF_REQUEST",
+      arguments: {}
+    }
+  });
+
+  assert.equal(decision.overrideResult, undefined);
+  assert.equal(decision.repromptContext?.type, "CONFIRM_SELECTED_APPOINTMENT");
+  assert.equal(decision.repromptContext?.selectedAppointment?.appointmentId, 503);
+});
+
+test("asks the caller to choose instead of falling back when confirmable options exist", () => {
+  const decision = applyDeterministicToolPolicy(session({
+    selectionOptions: [
+      option(502, "9:20 AM on Friday, August 21, 2026"),
+      option(503, "10:00 AM on Monday, August 24, 2026")
+    ]
+  }), {
+    toolRequest: {
+      name: "TRANSFER_TO_STAFF",
+      arguments: {}
+    }
+  });
+
+  assert.equal(decision.overrideResult, undefined);
+  assert.equal(decision.repromptContext?.type, "CHOOSE_CONFIRMABLE_APPOINTMENT");
+  assert.equal(decision.repromptContext?.options?.length, 2);
 });
 
 function session(input: {
   collectedFields?: Record<string, unknown>;
   lastToolResults?: Record<string, unknown>;
   failureReason?: string;
+  pendingAppointmentId?: unknown;
+  pendingStatus?: "AWAITING_CALLER_CONFIRMATION" | "READY_TO_EXECUTE";
+  selectionOptions?: Array<{ appointmentId: unknown; appointmentDate: string; doctorName?: string }>;
 }): CallSession {
   return {
     callSid: "CA-test",
     officeCode: "OFC001",
     startedAt: "2026-08-17T00:00:00.000Z",
     lastActivityAt: "2026-08-17T00:00:00.000Z",
-    patientVerified: false,
     transcript: [],
     collectedFields: input.collectedFields ?? {},
     lastToolResults: input.lastToolResults ?? {},
-    pendingActions: {},
-    appointmentSelections: {},
+    pendingActions: input.pendingAppointmentId ? {
+      CONFIRM_APPOINTMENT: {
+        appointmentId: input.pendingAppointmentId,
+        status: input.pendingStatus ?? "AWAITING_CALLER_CONFIRMATION",
+        createdAt: "2026-08-19T00:00:00.000Z"
+      }
+    } : {},
+    appointmentSelections: input.selectionOptions ? {
+      CONFIRM_APPOINTMENT: {
+        options: input.selectionOptions.map((selection) => ({
+          ...selection,
+          source: selection
+        })),
+        createdAt: "2026-08-19T00:00:00.000Z"
+      }
+    } : {},
+    currentIntent: "CONFIRM_APPOINTMENT",
     workflowState: input.failureReason ? {
       contractVersion: 1,
       workflow: "NEXT_APPOINTMENT",
@@ -117,5 +194,13 @@ function session(input: {
         canDisclosePatientData: false
       }
     } : undefined
+  };
+}
+
+function option(appointmentId: unknown, appointmentDate: string, doctorName = "Dr. David Johnson") {
+  return {
+    appointmentId,
+    appointmentDate,
+    doctorName
   };
 }

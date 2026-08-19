@@ -31,7 +31,6 @@ function session(): CallSession {
     fromNumber: "+17030175781",
     startedAt: "2026-08-17T00:00:00.000Z",
     lastActivityAt: "2026-08-17T00:00:00.000Z",
-    patientVerified: false,
     transcript: [],
     collectedFields: {},
     lastToolResults: {},

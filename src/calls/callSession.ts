@@ -63,7 +63,6 @@ export interface CallSession {
   startedAt: string;
   lastActivityAt: string;
   officeContext?: OfficeContext;
-  patientVerified: boolean;
   currentIntent?: string;
   workflowState?: WorkflowEnvelope;
   transcript: TranscriptTurn[];
@@ -96,7 +95,6 @@ export class CallSessionStore {
       toNumber: input.toNumber,
       startedAt: now,
       lastActivityAt: now,
-      patientVerified: false,
       transcript: [],
       collectedFields: {},
       lastToolResults: {},

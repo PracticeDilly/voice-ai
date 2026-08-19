@@ -1,36 +1,120 @@
 import { CallSession } from "../calls/callSession.js";
+import { normalizeAppointmentId } from "../appointments/appointmentId.js";
 import { ModelTurnResult } from "./modelClient.js";
+
+export interface ToolPolicyBoundaryContext {
+  type: "CONFIRM_SELECTED_APPOINTMENT" | "CHOOSE_CONFIRMABLE_APPOINTMENT";
+  selectedAppointment?: {
+    appointmentId: unknown;
+    appointmentDate?: string;
+    doctorName?: string;
+  };
+  options?: Array<{
+    appointmentId: unknown;
+    appointmentDate?: string;
+    doctorName?: string;
+  }>;
+}
+
+export interface ToolPolicyDecision {
+  overrideResult?: ModelTurnResult;
+  repromptContext?: ToolPolicyBoundaryContext;
+}
 
 export function applyDeterministicToolPolicy(
   session: CallSession,
   result: ModelTurnResult
-): ModelTurnResult {
+): ToolPolicyDecision {
+  const confirmationBoundaryDecision = applyConfirmationExecutionBoundary(session, result);
+  if (confirmationBoundaryDecision) {
+    return confirmationBoundaryDecision;
+  }
+
   if (shouldRefreshAppointmentsAfterConfirmation(session, result)) {
     return {
-      ...result,
-      reply: "Let me check the latest appointment details for you.",
-      toolRequest: {
-        name: "GET_NEXT_APPOINTMENT",
-        arguments: { ...session.collectedFields }
+      overrideResult: {
+        ...result,
+        toolRequest: {
+          name: "GET_NEXT_APPOINTMENT",
+          arguments: { ...session.collectedFields }
+        }
       }
     };
   }
 
   if (shouldRetryLookupInsteadOfHandoff(session, result)) {
     return {
-      ...result,
-      reply: "Let me try that again with the updated information.",
-      toolRequest: {
-        name: "GET_NEXT_APPOINTMENT",
-        arguments: {
-          ...session.collectedFields,
-          ...(result.collectedFields ?? {})
+      overrideResult: {
+        ...result,
+        toolRequest: {
+          name: "GET_NEXT_APPOINTMENT",
+          arguments: {
+            ...session.collectedFields,
+            ...(result.collectedFields ?? {})
+          }
         }
       }
     };
   }
 
-  return result;
+  return {
+    overrideResult: result
+  };
+}
+
+function applyConfirmationExecutionBoundary(
+  session: CallSession,
+  result: ModelTurnResult
+): ToolPolicyDecision | undefined {
+  if (!isConfirmIntent(session.currentIntent) || !isFallbackToolRequest(result.toolRequest?.name)) {
+    return undefined;
+  }
+
+  const pendingConfirmation = session.pendingActions.CONFIRM_APPOINTMENT;
+  if (pendingConfirmation?.status === "READY_TO_EXECUTE") {
+    return {
+      overrideResult: {
+        ...result,
+        toolRequest: {
+          name: "CONFIRM_APPOINTMENT",
+          arguments: {
+            appointmentId: pendingConfirmation.appointmentId,
+            callerConfirmedSelectedAppointment: true
+          }
+        }
+      }
+    };
+  }
+
+  const selectedOption = selectedConfirmationOption(session);
+  if (selectedOption) {
+    return {
+      repromptContext: {
+        type: "CONFIRM_SELECTED_APPOINTMENT",
+        selectedAppointment: {
+          appointmentId: selectedOption.appointmentId,
+          appointmentDate: selectedOption.appointmentDate,
+          doctorName: selectedOption.doctorName
+        }
+      }
+    };
+  }
+
+  const options = session.appointmentSelections.CONFIRM_APPOINTMENT?.options ?? [];
+  if (options.length > 0) {
+    return {
+      repromptContext: {
+        type: "CHOOSE_CONFIRMABLE_APPOINTMENT",
+        options: options.map((option) => ({
+          appointmentId: option.appointmentId,
+          appointmentDate: option.appointmentDate,
+          doctorName: option.doctorName
+        }))
+      }
+    };
+  }
+
+  return undefined;
 }
 
 function shouldRefreshAppointmentsAfterConfirmation(
@@ -74,6 +158,24 @@ function normalized(value: unknown): string | undefined {
   return typeof value === "string" ? value.trim().toUpperCase() : undefined;
 }
 
+function isConfirmIntent(intent: string | undefined): boolean {
+  return normalized(intent) === "CONFIRM_APPOINTMENT";
+}
+
+function isFallbackToolRequest(toolName: string | undefined): boolean {
+  return toolName === "TRANSFER_TO_STAFF" || toolName === "CREATE_HANDOFF_REQUEST";
+}
+
+function selectedConfirmationOption(session: CallSession) {
+  const pendingAppointmentId = normalizeAppointmentId(session.pendingActions.CONFIRM_APPOINTMENT?.appointmentId);
+  if (!pendingAppointmentId) {
+    return undefined;
+  }
+
+  return session.appointmentSelections.CONFIRM_APPOINTMENT?.options.find((option) =>
+    normalizeAppointmentId(option.appointmentId) === pendingAppointmentId
+  );
+}
 function isSuccessfulToolResult(toolResult: unknown): boolean {
   return typeof toolResult === "object"
     && toolResult !== null

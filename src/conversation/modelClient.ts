@@ -3,6 +3,7 @@ import { config } from "../config/env.js";
 import { ToolRequest } from "../backend/springBootClient.js";
 import { CallSession } from "../calls/callSession.js";
 import { buildSystemPrompt } from "./promptBuilder.js";
+import { ToolPolicyBoundaryContext } from "./toolPolicy.js";
 
 export interface ModelTurnResult {
   reply?: string;
@@ -25,66 +26,51 @@ export class ModelClient {
   });
 
   async nextTurn(session: CallSession, callerText: string): Promise<ModelTurnResult> {
-    const response = await this.client.chat.completions.create({
-      model: config.OPENAI_MODEL,
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content: buildSystemPrompt(session)
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            callerText,
-            currentIntent: session.currentIntent,
-            workflowState: session.workflowState,
-            conversationHistory: session.transcript.slice(-12),
-            lastAssistantReply: this.findLastAssistantReply(session),
-            collectedFields: session.collectedFields,
-            lastToolResults: session.lastToolResults,
-            pendingActions: session.pendingActions,
-            appointmentSelections: session.appointmentSelections
-          })
-        }
-      ]
+    return this.createModelTurn(session, {
+      callerText,
+      currentIntent: session.currentIntent,
+      workflowState: session.workflowState,
+      conversationHistory: session.transcript.slice(-12),
+      lastAssistantReply: this.findLastAssistantReply(session),
+      collectedFields: session.collectedFields,
+      lastToolResults: session.lastToolResults,
+      pendingActions: session.pendingActions,
+      appointmentSelections: session.appointmentSelections
     });
-
-    const content = response.choices[0]?.message?.content ?? "{}";
-    return this.parseModelResult(content);
   }
 
   async continueWithToolResult(session: CallSession, toolResult: unknown): Promise<ModelTurnResult> {
-    const response = await this.client.chat.completions.create({
-      model: config.OPENAI_MODEL,
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content: buildSystemPrompt(session)
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            instruction: "Use this tool result to produce the next caller-facing response.",
-            currentIntent: session.currentIntent,
-            workflowState: session.workflowState,
-            toolResult,
-            conversationHistory: session.transcript.slice(-12),
-            lastAssistantReply: this.findLastAssistantReply(session),
-            lastCallerReply: this.findLastCallerReply(session),
-            collectedFields: session.collectedFields,
-            pendingActions: session.pendingActions,
-            appointmentSelections: session.appointmentSelections
-          })
-        }
-      ]
+    return this.createModelTurn(session, {
+      instruction: "Use this tool result to produce the next caller-facing response.",
+      currentIntent: session.currentIntent,
+      workflowState: session.workflowState,
+      toolResult,
+      conversationHistory: session.transcript.slice(-12),
+      lastAssistantReply: this.findLastAssistantReply(session),
+      lastCallerReply: this.findLastCallerReply(session),
+      collectedFields: session.collectedFields,
+      pendingActions: session.pendingActions,
+      appointmentSelections: session.appointmentSelections
     });
+  }
 
-    const content = response.choices[0]?.message?.content ?? "{}";
-    return this.parseModelResult(content);
+  async continueWithPolicyInstruction(
+    session: CallSession,
+    instruction: string,
+    boundaryContext?: ToolPolicyBoundaryContext
+  ): Promise<ModelTurnResult> {
+    return this.createModelTurn(session, {
+      instruction,
+      boundaryContext,
+      currentIntent: session.currentIntent,
+      workflowState: session.workflowState,
+      conversationHistory: session.transcript.slice(-12),
+      lastAssistantReply: this.findLastAssistantReply(session),
+      lastCallerReply: this.findLastCallerReply(session),
+      collectedFields: session.collectedFields,
+      pendingActions: session.pendingActions,
+      appointmentSelections: session.appointmentSelections
+    });
   }
 
   async summarizeCall(session: CallSession): Promise<ModelCallSummary> {
@@ -143,6 +129,27 @@ export class ModelClient {
         intent: "HANDOFF_TO_STAFF"
       };
     }
+  }
+
+  private async createModelTurn(session: CallSession, payload: Record<string, unknown>): Promise<ModelTurnResult> {
+    const response = await this.client.chat.completions.create({
+      model: config.OPENAI_MODEL,
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: buildSystemPrompt(session)
+        },
+        {
+          role: "user",
+          content: JSON.stringify(payload)
+        }
+      ]
+    });
+
+    const content = response.choices[0]?.message?.content ?? "{}";
+    return this.parseModelResult(content);
   }
 
   private findLastAssistantReply(session: CallSession): string | undefined {

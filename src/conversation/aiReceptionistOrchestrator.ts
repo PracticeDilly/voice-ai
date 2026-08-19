@@ -92,8 +92,7 @@ export class AiReceptionistOrchestrator {
     syncAppointmentConfirmationOptionsFromLastLookup(session);
     promotePendingAppointmentConfirmation(session);
 
-    const policyAdjustedResult = applyDeterministicToolPolicy(session, firstResult);
-    const finalResult = await this.resolveModelResult(session, policyAdjustedResult);
+    const finalResult = await this.resolvePolicyAwareModelResult(session, firstResult);
     if (firstResult.toolRequest
       && firstResult.intent
       && !this.isTerminalIntent(finalResult.intent)) {
@@ -236,6 +235,23 @@ export class AiReceptionistOrchestrator {
       durationMs: Date.now() - followupModelStartedAt
     });
     return finalResult;
+  }
+
+  private async resolvePolicyAwareModelResult(
+    session: CallSession,
+    firstResult: ModelTurnResult
+  ): Promise<ModelTurnResult> {
+    const policyDecision = applyDeterministicToolPolicy(session, firstResult);
+
+    if (policyDecision.repromptContext) {
+      return this.modelClient.continueWithPolicyInstruction(
+        session,
+        "A confirmation execution boundary is active. Continue the confirmation workflow using the provided boundary context. Do not use fallback staff transfer or follow-up unless the caller explicitly asks for staff or the backend requires handoff.",
+        policyDecision.repromptContext
+      );
+    }
+
+    return this.resolveModelResult(session, policyDecision.overrideResult ?? firstResult);
   }
 
   private shouldTransferToStaff(firstResult: ModelTurnResult, finalResult: ModelTurnResult): boolean {
