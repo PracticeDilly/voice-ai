@@ -1,18 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  consumePendingAppointmentConfirmation,
-  prepareAppointmentConfirmation,
-  promotePendingAppointmentConfirmation,
-  syncAppointmentConfirmationOptionsFromLastLookup,
-  syncPendingAppointmentConfirmation
-} from "../../src/appointments/appointmentPendingAction.js";
+  consumeConfirmAppointmentPendingAction,
+  hydrateConfirmAppointmentSelections,
+  prepareConfirmAppointmentTool,
+  promoteConfirmAppointmentPendingAction,
+  syncConfirmAppointmentFromLookup
+} from "../../src/workflows/confirmAppointment/confirmAppointmentPendingAction.js";
 import { CallSession } from "../../src/calls/callSession.js";
 
 test("creates awaiting pending confirmation from confirm-intent appointment lookup", () => {
   const callSession = session();
 
-  syncPendingAppointmentConfirmation(callSession, "GET_NEXT_APPOINTMENT", {
+  syncConfirmAppointmentFromLookup(callSession, "GET_NEXT_APPOINTMENT", {
     name: "GET_NEXT_APPOINTMENT",
     ok: true,
     data: {
@@ -28,7 +28,7 @@ test("creates awaiting pending confirmation from confirm-intent appointment look
 test("does not create pending confirmation for read-only next appointment intent", () => {
   const callSession = session();
 
-  syncPendingAppointmentConfirmation(callSession, "GET_NEXT_APPOINTMENT", {
+  syncConfirmAppointmentFromLookup(callSession, "GET_NEXT_APPOINTMENT", {
     name: "GET_NEXT_APPOINTMENT",
     ok: true,
     data: {
@@ -43,7 +43,7 @@ test("does not create pending confirmation for read-only next appointment intent
 test("stores multiple confirmable options without selecting the first appointment", () => {
   const callSession = session();
 
-  syncPendingAppointmentConfirmation(callSession, "GET_NEXT_APPOINTMENT", {
+  syncConfirmAppointmentFromLookup(callSession, "GET_NEXT_APPOINTMENT", {
     name: "GET_NEXT_APPOINTMENT",
     ok: true,
     data: {
@@ -78,7 +78,7 @@ test("selects a different appointment from stored confirmable options before con
     ]
   };
 
-  promotePendingAppointmentConfirmation(callSession, {
+  promoteConfirmAppointmentPendingAction(callSession, {
     name: "CONFIRM_APPOINTMENT",
     arguments: {
       appointmentId: 502
@@ -101,7 +101,7 @@ test("selects a confirmable appointment by structured appointment date", () => {
     ]
   };
 
-  promotePendingAppointmentConfirmation(callSession);
+  promoteConfirmAppointmentPendingAction(callSession);
 
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.appointmentId, 502);
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "AWAITING_CALLER_CONFIRMATION");
@@ -110,7 +110,7 @@ test("selects a confirmable appointment by structured appointment date", () => {
 test("does not create pending confirmation for non-confirm intent names containing confirm text", () => {
   const callSession = session();
 
-  syncPendingAppointmentConfirmation(callSession, "GET_NEXT_APPOINTMENT", {
+  syncConfirmAppointmentFromLookup(callSession, "GET_NEXT_APPOINTMENT", {
     name: "GET_NEXT_APPOINTMENT",
     ok: true,
     data: {
@@ -133,7 +133,7 @@ test("promotes pending confirmation after structured caller confirmation", () =>
   };
   callSession.collectedFields.callerConfirmedSelectedAppointment = true;
 
-  promotePendingAppointmentConfirmation(callSession);
+  promoteConfirmAppointmentPendingAction(callSession);
 
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT.status, "READY_TO_EXECUTE");
 });
@@ -146,7 +146,7 @@ test("promotes pending confirmation from structured tool argument", () => {
     createdAt: "2026-08-17T00:00:00.000Z"
   };
 
-  promotePendingAppointmentConfirmation(callSession, {
+  promoteConfirmAppointmentPendingAction(callSession, {
     name: "CONFIRM_APPOINTMENT",
     arguments: {
       appointmentId: 501,
@@ -166,7 +166,7 @@ test("consumes pending confirmation after successful confirmation", () => {
   };
   callSession.collectedFields.callerConfirmedSelectedAppointment = true;
 
-  consumePendingAppointmentConfirmation(callSession, "CONFIRM_APPOINTMENT", {
+  consumeConfirmAppointmentPendingAction(callSession, "CONFIRM_APPOINTMENT", {
     name: "CONFIRM_APPOINTMENT",
     ok: true
   });
@@ -183,7 +183,7 @@ test("adds explicit confirmation flag after pending confirmation is ready", () =
     createdAt: "2026-08-17T00:00:00.000Z"
   };
 
-  const prepared = prepareAppointmentConfirmation(callSession, {
+  const prepared = prepareConfirmAppointmentTool(callSession, {
     name: "CONFIRM_APPOINTMENT",
     arguments: {
       appointmentId: 501
@@ -201,7 +201,7 @@ test("adds pending appointment id when the model selected by date", () => {
     createdAt: "2026-08-17T00:00:00.000Z"
   };
 
-  const prepared = prepareAppointmentConfirmation(callSession, {
+  const prepared = prepareConfirmAppointmentTool(callSession, {
     name: "CONFIRM_APPOINTMENT",
     arguments: {}
   });
@@ -224,7 +224,7 @@ test("hydrates confirmation options from the last read-only lookup when caller s
     }
   };
 
-  syncAppointmentConfirmationOptionsFromLastLookup(callSession);
+  hydrateConfirmAppointmentSelections(callSession);
 
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT, undefined);
   assert.deepEqual(

@@ -1,9 +1,8 @@
-import { validateAppointmentConfirmation } from "../appointments/appointmentConfirmation.js";
-import { prepareAppointmentConfirmation } from "../appointments/appointmentPendingAction.js";
-import { prepareNextAppointmentLookup } from "../appointments/nextAppointment.js";
 import { SpringBootClient, ToolRequest, ToolResult } from "../backend/springBootClient.js";
 import { CallSession } from "../calls/callSession.js";
 import { validateHandoffRequest } from "../handoff/handoffRequest.js";
+import { ConfirmAppointmentToolAdapter } from "../workflows/confirmAppointment/confirmAppointmentToolAdapter.js";
+import { prepareWorkflowTool, validateWorkflowTool } from "../workflows/shared/workflowRegistry.js";
 
 const allowedTools = new Set([
   "VERIFY_PATIENT",
@@ -16,6 +15,8 @@ const allowedTools = new Set([
 ]);
 
 export class ToolExecutor {
+  private readonly confirmAppointmentToolAdapter = new ConfirmAppointmentToolAdapter();
+
   constructor(private readonly springBootClient: SpringBootClient) {}
 
   isAllowed(name: string): boolean {
@@ -31,8 +32,8 @@ export class ToolExecutor {
       };
     }
 
-    const preparedAppointmentTool = prepareAppointmentConfirmation(session, tool);
-    const policyError = validateAppointmentConfirmation(session, preparedAppointmentTool);
+    const preparedAppointmentTool = this.confirmAppointmentToolAdapter.prepareTool(session, tool);
+    const policyError = this.confirmAppointmentToolAdapter.validateTool(session, preparedAppointmentTool);
     if (policyError) {
       return {
         name: tool.name,
@@ -50,7 +51,16 @@ export class ToolExecutor {
       };
     }
 
-    const preparedTool = prepareNextAppointmentLookup(session, preparedAppointmentTool);
+    const preparedTool = prepareWorkflowTool(session, preparedAppointmentTool);
+    const workflowPolicyError = validateWorkflowTool(session, preparedTool);
+    if (workflowPolicyError) {
+      return {
+        name: tool.name,
+        ok: false,
+        error: workflowPolicyError
+      };
+    }
+
     return this.springBootClient.executeTool(session.callSid, session.officeCode, preparedTool);
   }
 }

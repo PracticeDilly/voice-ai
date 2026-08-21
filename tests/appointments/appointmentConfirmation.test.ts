@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateAppointmentConfirmation } from "../../src/appointments/appointmentConfirmation.js";
 import { ToolRequest } from "../../src/backend/springBootClient.js";
 import { CallSession } from "../../src/calls/callSession.js";
+import { ConfirmAppointmentToolAdapter } from "../../src/workflows/confirmAppointment/confirmAppointmentToolAdapter.js";
+
+const toolAdapter = new ConfirmAppointmentToolAdapter();
 
 test("allows confirmation for the backend-selected appointment", () => {
-  assert.equal(validateAppointmentConfirmation(session({
+  assert.equal(toolAdapter.validateTool(session({
     workflow: "CONFIRM_APPOINTMENT",
     allowedActions: ["CONFIRM_APPOINTMENT"],
     selectedAppointmentId: 501,
@@ -16,7 +18,7 @@ test("allows confirmation for the backend-selected appointment", () => {
 });
 
 test("rejects confirmation without a pending confirmation action", () => {
-  assert.match(validateAppointmentConfirmation(session({
+  assert.match(toolAdapter.validateTool(session({
     workflow: "CONFIRM_APPOINTMENT",
     allowedActions: ["CONFIRM_APPOINTMENT"],
     selectedAppointmentId: 501,
@@ -25,7 +27,7 @@ test("rejects confirmation without a pending confirmation action", () => {
 });
 
 test("rejects confirmation before caller authorization", () => {
-  assert.match(validateAppointmentConfirmation(session({
+  assert.match(toolAdapter.validateTool(session({
     workflow: "NEXT_APPOINTMENT",
     allowedActions: ["CONFIRM_APPOINTMENT"],
     selectedAppointmentId: 501,
@@ -36,7 +38,7 @@ test("rejects confirmation before caller authorization", () => {
 });
 
 test("rejects confirmation for an already-confirmed appointment", () => {
-  assert.match(validateAppointmentConfirmation(session({
+  assert.match(toolAdapter.validateTool(session({
     workflow: "CONFIRM_APPOINTMENT",
     allowedActions: ["CONFIRM_APPOINTMENT"],
     selectedAppointmentId: 501,
@@ -47,7 +49,7 @@ test("rejects confirmation for an already-confirmed appointment", () => {
 });
 
 test("rejects an appointment id that differs from the backend selection", () => {
-  assert.match(validateAppointmentConfirmation(session({
+  assert.match(toolAdapter.validateTool(session({
     workflow: "CONFIRM_APPOINTMENT",
     allowedActions: ["CONFIRM_APPOINTMENT"],
     selectedAppointmentId: 501,
@@ -58,7 +60,7 @@ test("rejects an appointment id that differs from the backend selection", () => 
 });
 
 test("does not restrict read-only appointment lookup", () => {
-  assert.equal(validateAppointmentConfirmation(session({
+  assert.equal(toolAdapter.validateTool(session({
     workflow: "NEXT_APPOINTMENT",
     allowedActions: [],
     selectedAppointmentId: undefined,

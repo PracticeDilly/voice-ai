@@ -2,8 +2,8 @@ import OpenAI from "openai";
 import { config } from "../config/env.js";
 import { ToolRequest } from "../backend/springBootClient.js";
 import { CallSession } from "../calls/callSession.js";
+import { ToolPolicyBoundaryContext } from "../workflows/shared/workflowTypes.js";
 import { buildSystemPrompt } from "./promptBuilder.js";
-import { ToolPolicyBoundaryContext } from "./toolPolicy.js";
 
 export interface ModelTurnResult {
   reply?: string;

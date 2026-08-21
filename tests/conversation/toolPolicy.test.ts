@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyDeterministicToolPolicy } from "../../src/conversation/toolPolicy.js";
 import { CallSession } from "../../src/calls/callSession.js";
+import { applyWorkflowTurnPolicies } from "../../src/workflows/shared/workflowRegistry.js";
 
 test("forces fresh appointment lookup for follow-up questions after confirmation", () => {
-  const decision = applyDeterministicToolPolicy(session({
+  const decision = applyWorkflowTurnPolicies(session({
     collectedFields: {
       firstName: "Kim",
       dob: "10/18/1999"
@@ -16,7 +16,7 @@ test("forces fresh appointment lookup for follow-up questions after confirmation
     intent: "GET_NEXT_APPOINTMENT",
     reply: "They are all unconfirmed."
   });
-  const result = decision.overrideResult;
+  const result = decision?.overrideResult;
 
   assert.equal(result.toolRequest?.name, "GET_NEXT_APPOINTMENT");
   assert.deepEqual(result.toolRequest?.arguments, {
@@ -31,19 +31,19 @@ test("does not force lookup when fresh appointment data is already present", () 
     reply: "You have one unconfirmed appointment."
   };
 
-  const decision = applyDeterministicToolPolicy(session({
+  const decision = applyWorkflowTurnPolicies(session({
     lastToolResults: {
       CONFIRM_APPOINTMENT: { ok: true },
       GET_NEXT_APPOINTMENT: { ok: true }
     }
   }), original);
-  const result = decision.overrideResult;
+  const result = decision?.overrideResult ?? original;
 
   assert.equal(result, original);
 });
 
 test("retries appointment lookup instead of creating handoff when patient corrects identity", () => {
-  const decision = applyDeterministicToolPolicy(session({
+  const decision = applyWorkflowTurnPolicies(session({
     failureReason: "PATIENT_NOT_FOUND"
   }), {
     collectedFields: {
@@ -55,7 +55,7 @@ test("retries appointment lookup instead of creating handoff when patient correc
       arguments: {}
     }
   });
-  const result = decision.overrideResult;
+  const result = decision?.overrideResult;
 
   assert.equal(result.toolRequest?.name, "GET_NEXT_APPOINTMENT");
   assert.deepEqual(result.toolRequest?.arguments, {
@@ -72,10 +72,10 @@ test("keeps handoff when caller did not provide corrected identity", () => {
     }
   };
 
-  const decision = applyDeterministicToolPolicy(session({
+  const decision = applyWorkflowTurnPolicies(session({
     failureReason: "PATIENT_NOT_FOUND"
   }), original);
-  const result = decision.overrideResult;
+  const result = decision?.overrideResult ?? original;
 
   assert.equal(result, original);
 });
@@ -85,18 +85,18 @@ test("does not infer appointment lookup from reply text alone", () => {
     reply: "Can you tell me which ones are unconfirmed?"
   };
 
-  const decision = applyDeterministicToolPolicy(session({
+  const decision = applyWorkflowTurnPolicies(session({
     lastToolResults: {
       CONFIRM_APPOINTMENT: { ok: true }
     }
   }), original);
-  const result = decision.overrideResult;
+  const result = decision?.overrideResult ?? original;
 
   assert.equal(result, original);
 });
 
 test("prefers confirmation execution over fallback when confirmation is ready", () => {
-  const decision = applyDeterministicToolPolicy(session({
+  const decision = applyWorkflowTurnPolicies(session({
     pendingAppointmentId: 502,
     pendingStatus: "READY_TO_EXECUTE"
   }), {
@@ -105,7 +105,7 @@ test("prefers confirmation execution over fallback when confirmation is ready", 
       arguments: {}
     }
   });
-  const result = decision.overrideResult;
+  const result = decision?.overrideResult;
 
   assert.equal(result.toolRequest?.name, "CONFIRM_APPOINTMENT");
   assert.equal(result.toolRequest?.arguments.appointmentId, 502);
@@ -113,7 +113,7 @@ test("prefers confirmation execution over fallback when confirmation is ready", 
 });
 
 test("prefers confirmation flow over fallback when a selected appointment exists", () => {
-  const decision = applyDeterministicToolPolicy(session({
+  const decision = applyWorkflowTurnPolicies(session({
     pendingAppointmentId: 503,
     pendingStatus: "AWAITING_CALLER_CONFIRMATION",
     selectionOptions: [
@@ -127,13 +127,13 @@ test("prefers confirmation flow over fallback when a selected appointment exists
     }
   });
 
-  assert.equal(decision.overrideResult, undefined);
-  assert.equal(decision.repromptContext?.type, "CONFIRM_SELECTED_APPOINTMENT");
-  assert.equal(decision.repromptContext?.selectedAppointment?.appointmentId, 503);
+  assert.equal(decision?.overrideResult, undefined);
+  assert.equal(decision?.repromptContext?.type, "CONFIRM_SELECTED_APPOINTMENT");
+  assert.equal(decision?.repromptContext?.selectedAppointment?.appointmentId, 503);
 });
 
 test("asks the caller to choose instead of falling back when confirmable options exist", () => {
-  const decision = applyDeterministicToolPolicy(session({
+  const decision = applyWorkflowTurnPolicies(session({
     selectionOptions: [
       option(502, "9:20 AM on Friday, August 21, 2026"),
       option(503, "10:00 AM on Monday, August 24, 2026")
@@ -145,9 +145,9 @@ test("asks the caller to choose instead of falling back when confirmable options
     }
   });
 
-  assert.equal(decision.overrideResult, undefined);
-  assert.equal(decision.repromptContext?.type, "CHOOSE_CONFIRMABLE_APPOINTMENT");
-  assert.equal(decision.repromptContext?.options?.length, 2);
+  assert.equal(decision?.overrideResult, undefined);
+  assert.equal(decision?.repromptContext?.type, "CHOOSE_CONFIRMABLE_APPOINTMENT");
+  assert.equal(decision?.repromptContext?.options?.length, 2);
 });
 
 function session(input: {

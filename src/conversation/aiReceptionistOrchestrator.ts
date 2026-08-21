@@ -2,20 +2,20 @@ import { SpringBootClient } from "../backend/springBootClient.js";
 import { CallSession, CallSessionStore } from "../calls/callSession.js";
 import { invalidateAppointmentLookupCacheAfterConfirmation } from "../appointments/appointmentLookupCache.js";
 import {
-  consumePendingAppointmentConfirmation,
-  promotePendingAppointmentConfirmation,
-  syncAppointmentConfirmationOptionsFromLastLookup,
-  syncPendingAppointmentConfirmation
-} from "../appointments/appointmentPendingAction.js";
+  consumeConfirmAppointmentPendingAction,
+  hydrateConfirmAppointmentSelections,
+  promoteConfirmAppointmentPendingAction,
+  syncConfirmAppointmentFromLookup
+} from "../workflows/confirmAppointment/confirmAppointmentPendingAction.js";
 import {
   consumePendingHandoffRequest,
   syncPendingHandoffRequest
 } from "../handoff/handoffPendingAction.js";
 import { ToolExecutor } from "../tools/toolExecutor.js";
 import { logger } from "../utils/logger.js";
+import { applyWorkflowTurnPolicies } from "../workflows/shared/workflowRegistry.js";
 import { extractWorkflowEnvelope } from "../workflows/workflowState.js";
 import { ModelClient, ModelTurnResult } from "./modelClient.js";
-import { applyDeterministicToolPolicy } from "./toolPolicy.js";
 
 export interface ConversationTurnOutcome {
   reply: string;
@@ -89,8 +89,8 @@ export class AiReceptionistOrchestrator {
         ...firstResult.collectedFields
       };
     }
-    syncAppointmentConfirmationOptionsFromLastLookup(session);
-    promotePendingAppointmentConfirmation(session);
+    hydrateConfirmAppointmentSelections(session);
+    promoteConfirmAppointmentPendingAction(session);
 
     const finalResult = await this.resolvePolicyAwareModelResult(session, firstResult);
     if (firstResult.toolRequest
@@ -183,7 +183,7 @@ export class AiReceptionistOrchestrator {
     if (!result.toolRequest) {
       return result;
     }
-    promotePendingAppointmentConfirmation(session, result.toolRequest);
+    promoteConfirmAppointmentPendingAction(session, result.toolRequest);
     syncPendingHandoffRequest(session, result.toolRequest);
 
     const toolStartedAt = Date.now();
@@ -196,9 +196,9 @@ export class AiReceptionistOrchestrator {
     const toolResult = await this.tryExecuteTool(session, result.toolRequest);
     session.lastToolResults[result.toolRequest.name] = toolResult;
     session.workflowState = extractWorkflowEnvelope(toolResult) ?? session.workflowState;
-    syncPendingAppointmentConfirmation(session, result.toolRequest.name, toolResult, session.currentIntent);
+    syncConfirmAppointmentFromLookup(session, result.toolRequest.name, toolResult, session.currentIntent);
     invalidateAppointmentLookupCacheAfterConfirmation(session, result.toolRequest.name, toolResult);
-    consumePendingAppointmentConfirmation(session, result.toolRequest.name, toolResult);
+    consumeConfirmAppointmentPendingAction(session, result.toolRequest.name, toolResult);
     consumePendingHandoffRequest(session, result.toolRequest.name, toolResult);
     logger.info("AI workflow state updated from tool result", {
       callSid: session.callSid,
@@ -241,7 +241,9 @@ export class AiReceptionistOrchestrator {
     session: CallSession,
     firstResult: ModelTurnResult
   ): Promise<ModelTurnResult> {
-    const policyDecision = applyDeterministicToolPolicy(session, firstResult);
+    const policyDecision = applyWorkflowTurnPolicies(session, firstResult) ?? {
+      overrideResult: firstResult
+    };
 
     if (policyDecision.repromptContext) {
       return this.modelClient.continueWithPolicyInstruction(

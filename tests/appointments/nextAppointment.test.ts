@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { prepareNextAppointmentLookup } from "../../src/appointments/nextAppointment.js";
 import { CallSession } from "../../src/calls/callSession.js";
+import { NextAppointmentToolAdapter } from "../../src/workflows/nextAppointment/nextAppointmentToolAdapter.js";
+
+const toolAdapter = new NextAppointmentToolAdapter();
 
 test("adds the caller number to a next-appointment lookup", () => {
-  const prepared = prepareNextAppointmentLookup(session(), {
+  const prepared = toolAdapter.prepareTool(session(), {
     name: "GET_NEXT_APPOINTMENT",
     arguments: { firstName: "Kumar" }
   });
@@ -15,13 +17,47 @@ test("adds the caller number to a next-appointment lookup", () => {
   });
 });
 
+test("canonicalizes next-appointment lookup fields before sending them", () => {
+  const prepared = toolAdapter.prepareTool(session(), {
+    name: "GET_NEXT_APPOINTMENT",
+    arguments: {
+      firstName: "  Kim  ",
+      lastName: " Miller ",
+      dateOfBirth: " 10/18/1999 ",
+      fromNumber: " +17030175781 "
+    }
+  });
+
+  assert.deepEqual(prepared.arguments, {
+    firstName: "Kim",
+    lastName: "Miller",
+    dob: "10/18/1999",
+    fromNumber: "+17030175781"
+  });
+});
+
+test("omits blank caller-derived fields from a next-appointment lookup", () => {
+  const prepared = toolAdapter.prepareTool(session(), {
+    name: "GET_NEXT_APPOINTMENT",
+    arguments: {
+      firstName: "   ",
+      dob: "",
+      fromNumber: "   "
+    }
+  });
+
+  assert.deepEqual(prepared.arguments, {
+    fromNumber: "+17030175781"
+  });
+});
+
 test("does not modify unrelated tool requests", () => {
   const request = {
     name: "GET_INSURANCE_POLICY",
     arguments: {}
   };
 
-  assert.equal(prepareNextAppointmentLookup(session(), request), request);
+  assert.equal(toolAdapter.prepareTool(session(), request), request);
 });
 
 function session(): CallSession {
