@@ -59,6 +59,17 @@ test("rejects an appointment id that differs from the backend selection", () => 
   }), confirmation(900)) ?? "", /does not match/);
 });
 
+test("does not reject explicit caller selection because of stale next-appointment state", () => {
+  assert.equal(toolAdapter.validateTool(session({
+    workflow: "NEXT_APPOINTMENT",
+    allowedActions: ["GET_NEXT_APPOINTMENT"],
+    selectedAppointmentId: 501,
+    alreadyConfirmed: false,
+    pendingAppointmentId: 502,
+    pendingStatus: "READY_TO_EXECUTE"
+  }), confirmation(502)), undefined);
+});
+
 test("does not restrict read-only appointment lookup", () => {
   assert.equal(toolAdapter.validateTool(session({
     workflow: "NEXT_APPOINTMENT",

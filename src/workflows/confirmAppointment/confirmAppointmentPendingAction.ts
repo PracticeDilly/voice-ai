@@ -47,7 +47,7 @@ export function promoteConfirmAppointmentPendingAction(session: CallSession, too
   syncSelectedConfirmAppointment(session, tool);
 
   const pending = session.pendingActions.CONFIRM_APPOINTMENT;
-  if (!pending || !callerConfirmedSelectedAppointment(session, tool)) {
+  if (!pending || !callerConfirmedSelectedAppointment(session)) {
     return;
   }
 
@@ -143,9 +143,8 @@ function syncSelectedConfirmAppointment(session: CallSession, tool: ToolRequest 
   };
 }
 
-function callerConfirmedSelectedAppointment(session: CallSession, tool: ToolRequest | undefined): boolean {
-  return session.collectedFields.callerConfirmedSelectedAppointment === true
-    || (tool?.name === "CONFIRM_APPOINTMENT" && tool.arguments?.callerConfirmedSelectedAppointment === true);
+function callerConfirmedSelectedAppointment(session: CallSession): boolean {
+  return session.collectedFields.callerConfirmedSelectedAppointment === true;
 }
 
 function isConfirmIntent(intent: string | undefined): boolean {

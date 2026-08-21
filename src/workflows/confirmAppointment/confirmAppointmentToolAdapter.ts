@@ -35,7 +35,7 @@ export class ConfirmAppointmentToolAdapter implements WorkflowToolAdapter {
 
     const selectedAppointmentId = normalizeAppointmentId(stateView.selectedAppointmentId());
     const requestedAppointmentId = normalizeAppointmentId(tool.arguments?.appointmentId);
-    if (selectedAppointmentId && (!requestedAppointmentId || selectedAppointmentId !== requestedAppointmentId)) {
+    if (stateView.isActive() && selectedAppointmentId && (!requestedAppointmentId || selectedAppointmentId !== requestedAppointmentId)) {
       return "The requested appointment does not match the appointment selected by the backend.";
     }
 

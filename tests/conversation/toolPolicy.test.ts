@@ -109,7 +109,7 @@ test("prefers confirmation execution over fallback when confirmation is ready", 
 
   assert.equal(result.toolRequest?.name, "CONFIRM_APPOINTMENT");
   assert.equal(result.toolRequest?.arguments.appointmentId, 502);
-  assert.equal(result.toolRequest?.arguments.callerConfirmedSelectedAppointment, true);
+  assert.equal(result.toolRequest?.arguments.callerConfirmedSelectedAppointment, undefined);
 });
 
 test("prefers confirmation flow over fallback when a selected appointment exists", () => {
@@ -148,6 +148,27 @@ test("asks the caller to choose instead of falling back when confirmable options
   assert.equal(decision?.overrideResult, undefined);
   assert.equal(decision?.repromptContext?.type, "CHOOSE_CONFIRMABLE_APPOINTMENT");
   assert.equal(decision?.repromptContext?.options?.length, 2);
+});
+
+test("asks the caller to spell the name before falling back to staff on patient-not-found", () => {
+  const decision = applyWorkflowTurnPolicies(session({
+    collectedFields: {
+      firstName: "Kima",
+      lastName: "Miller"
+    },
+    failureReason: "PATIENT_NOT_FOUND"
+  }), {
+    toolRequest: {
+      name: "CREATE_HANDOFF_REQUEST",
+      arguments: {}
+    }
+  });
+
+  assert.equal(decision?.overrideResult, undefined);
+  assert.match(decision?.instruction ?? "", /spell the name/i);
+  assert.equal(decision?.repromptContext?.type, "ASK_CALLER_TO_SPELL_NAME");
+  assert.equal(decision?.repromptContext?.identity?.firstName, "Kima");
+  assert.equal(decision?.repromptContext?.identity?.lastName, "Miller");
 });
 
 function session(input: {

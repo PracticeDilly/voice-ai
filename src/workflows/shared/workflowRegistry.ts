@@ -16,7 +16,7 @@ export function applyWorkflowTurnPolicies(
 ): ToolPolicyDecision | undefined {
   for (const workflow of workflows) {
     const decision = workflow.applyTurnPolicy?.(session, result);
-    if (decision?.overrideResult || decision?.repromptContext) {
+    if (decision?.overrideResult || decision?.repromptContext || decision?.instruction) {
       return decision;
     }
   }

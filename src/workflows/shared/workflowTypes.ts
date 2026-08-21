@@ -3,7 +3,7 @@ import { CallSession } from "../../calls/callSession.js";
 import { ModelTurnResult } from "../../conversation/modelClient.js";
 
 export interface ToolPolicyBoundaryContext {
-  type: "CONFIRM_SELECTED_APPOINTMENT" | "CHOOSE_CONFIRMABLE_APPOINTMENT";
+  type: "CONFIRM_SELECTED_APPOINTMENT" | "CHOOSE_CONFIRMABLE_APPOINTMENT" | "ASK_CALLER_TO_SPELL_NAME";
   selectedAppointment?: {
     appointmentId: unknown;
     appointmentDate?: string;
@@ -14,10 +14,15 @@ export interface ToolPolicyBoundaryContext {
     appointmentDate?: string;
     doctorName?: string;
   }>;
+  identity?: {
+    firstName?: string;
+    lastName?: string;
+  };
 }
 
 export interface ToolPolicyDecision {
   overrideResult?: ModelTurnResult;
+  instruction?: string;
   repromptContext?: ToolPolicyBoundaryContext;
 }
 

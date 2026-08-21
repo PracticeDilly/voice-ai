@@ -248,7 +248,8 @@ export class AiReceptionistOrchestrator {
     if (policyDecision.repromptContext) {
       return this.modelClient.continueWithPolicyInstruction(
         session,
-        "A confirmation execution boundary is active. Continue the confirmation workflow using the provided boundary context. Do not use fallback staff transfer or follow-up unless the caller explicitly asks for staff or the backend requires handoff.",
+        policyDecision.instruction
+          ?? "A workflow execution boundary is active. Continue the active workflow using the provided boundary context. Do not use fallback staff transfer or follow-up unless the caller explicitly asks for staff or the backend requires handoff.",
         policyDecision.repromptContext
       );
     }

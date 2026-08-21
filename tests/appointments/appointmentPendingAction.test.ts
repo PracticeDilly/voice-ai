@@ -138,7 +138,7 @@ test("promotes pending confirmation after structured caller confirmation", () =>
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT.status, "READY_TO_EXECUTE");
 });
 
-test("promotes pending confirmation from structured tool argument", () => {
+test("does not promote pending confirmation from tool arguments alone", () => {
   const callSession = session();
   callSession.pendingActions.CONFIRM_APPOINTMENT = {
     appointmentId: 501,
@@ -154,7 +154,7 @@ test("promotes pending confirmation from structured tool argument", () => {
     }
   });
 
-  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT.status, "READY_TO_EXECUTE");
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT.status, "AWAITING_CALLER_CONFIRMATION");
 });
 
 test("consumes pending confirmation after successful confirmation", () => {

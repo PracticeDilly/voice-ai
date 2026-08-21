@@ -41,6 +41,19 @@ export const nextAppointmentWorkflow: ConversationWorkflow = {
       };
     }
 
+    if (shouldAskCallerToSpellName(context)) {
+      return {
+        instruction: "The previous patient lookup did not find a match. Stay in the active next-appointment identity-recovery flow. Ask the caller to spell the name that may have been heard incorrectly before offering staff follow-up.",
+        repromptContext: {
+          type: "ASK_CALLER_TO_SPELL_NAME",
+          identity: {
+            firstName: meaningfulString(session.collectedFields.firstName),
+            lastName: meaningfulString(session.collectedFields.lastName)
+          }
+        }
+      };
+    }
+
     return undefined;
   }
 };
@@ -57,4 +70,39 @@ function shouldRetryLookupInsteadOfHandoff(context: ReturnType<typeof createNext
     && context.stateView.isPatientNotFound()
     && context.stateView.allowsLookup()
     && Object.keys(context.updatedIdentityFields).length > 0;
+}
+
+function shouldAskCallerToSpellName(context: ReturnType<typeof createNextAppointmentTurnContext>): boolean {
+  return context.requestedHandoff
+    && context.stateView.isPatientNotFound()
+    && context.stateView.allowsLookup()
+    && Object.keys(context.updatedIdentityFields).length === 0
+    && hasKnownName(context.session.collectedFields)
+    && !lastAssistantAskedToSpell(context.session);
+}
+
+function hasKnownName(fields: Record<string, unknown>): boolean {
+  return !!meaningfulString(fields.firstName) || !!meaningfulString(fields.lastName);
+}
+
+function lastAssistantAskedToSpell(session: CallSession): boolean {
+  for (let index = session.transcript.length - 1; index >= 0; index -= 1) {
+    const turn = session.transcript[index];
+    if (turn.speaker !== "assistant") {
+      continue;
+    }
+
+    return turn.text.toLowerCase().includes("spell");
+  }
+
+  return false;
+}
+
+function meaningfulString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }

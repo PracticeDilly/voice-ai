@@ -31,8 +31,7 @@ function applyConfirmationExecutionBoundary(
         toolRequest: {
           name: "CONFIRM_APPOINTMENT",
           arguments: {
-            appointmentId: session.pendingActions.CONFIRM_APPOINTMENT?.appointmentId,
-            callerConfirmedSelectedAppointment: true
+            appointmentId: session.pendingActions.CONFIRM_APPOINTMENT?.appointmentId
           }
         }
       }
@@ -41,6 +40,7 @@ function applyConfirmationExecutionBoundary(
 
   if (context.pendingSelection) {
     return {
+      instruction: "A confirmation execution boundary is active. Continue the confirmation workflow using the provided boundary context. Stay with appointment selection and confirmation. Do not use fallback staff transfer or follow-up unless the caller explicitly asks for staff or the backend requires handoff.",
       repromptContext: {
         type: "CONFIRM_SELECTED_APPOINTMENT",
         selectedAppointment: {
@@ -54,6 +54,7 @@ function applyConfirmationExecutionBoundary(
 
   if (context.selectionOptions.length > 0) {
     return {
+      instruction: "A confirmation execution boundary is active. Continue the confirmation workflow using the provided boundary context. Help the caller choose one confirmable appointment before any state-changing tool request. Do not use fallback staff transfer or follow-up unless the caller explicitly asks for staff or the backend requires handoff.",
       repromptContext: {
         type: "CHOOSE_CONFIRMABLE_APPOINTMENT",
         options: context.selectionOptions.map((option) => ({
