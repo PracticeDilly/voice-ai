@@ -17,4 +17,8 @@ export class NextAppointmentStateView {
   allowsLookup(): boolean {
     return this.workflowState.allowedActions().includes("GET_NEXT_APPOINTMENT");
   }
+
+  isCompleted(): boolean {
+    return this.workflowState.state() === "COMPLETED";
+  }
 }

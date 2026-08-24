@@ -24,6 +24,21 @@ export function applyWorkflowTurnPolicies(
   return undefined;
 }
 
+export function applyWorkflowToolResultPolicies(
+  session: CallSession,
+  toolName: string,
+  toolResult: unknown
+): ToolPolicyDecision | undefined {
+  for (const workflow of workflows) {
+    const decision = workflow.applyToolResultPolicy?.(session, toolName, toolResult);
+    if (decision?.overrideResult || decision?.repromptContext || decision?.instruction) {
+      return decision;
+    }
+  }
+
+  return undefined;
+}
+
 export function prepareWorkflowTool(session: CallSession, tool: ToolRequest): ToolRequest {
   return workflows.reduce((preparedTool, workflow) => {
     if (!workflow.toolAdapter?.supports(preparedTool)) {

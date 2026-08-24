@@ -32,6 +32,10 @@ export interface PendingActions {
     status: PendingActionStatus;
     createdAt: string;
   };
+  VERIFY_PATIENT_IDENTITY?: {
+    status: "NEEDS_NAME_SPELLING";
+    createdAt: string;
+  };
   CREATE_HANDOFF_REQUEST?: {
     status: "READY_TO_EXECUTE";
     consentSource: "CALLER_EXPLICIT_REQUEST" | "CALLER_ACCEPTED_FOLLOWUP_OFFER";

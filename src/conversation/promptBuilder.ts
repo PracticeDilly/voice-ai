@@ -69,6 +69,8 @@ export function buildSystemPrompt(session: CallSession): string {
     "- Use appointmentSelections to map caller choices such as a date, time, or ordinal to one backend appointment option.",
     "- For appointment selection, put appointmentId when known; otherwise put selectedAppointmentDate in collectedFields.",
     "- When the caller authorizes a pending state-changing action, expose that as a structured collectedFields value; Node validates execution.",
+    "- If the caller names a specific appointment and asks to confirm it in the same utterance, capture both the selection and callerConfirmedSelectedAppointment: true in collectedFields.",
+    "- For appointment-specific lookups and confirmations, continue identity verification until date of birth is collected before disclosing appointment details or confirming an appointment.",
     "- When instruction and boundaryContext are present, treat them as Node workflow guidance for the next turn and continue that workflow without inventing a fallback tool.",
     "",
     "Tool contracts:",

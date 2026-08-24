@@ -13,7 +13,7 @@ import {
 } from "../handoff/handoffPendingAction.js";
 import { ToolExecutor } from "../tools/toolExecutor.js";
 import { logger } from "../utils/logger.js";
-import { applyWorkflowTurnPolicies } from "../workflows/shared/workflowRegistry.js";
+import { applyWorkflowToolResultPolicies, applyWorkflowTurnPolicies } from "../workflows/shared/workflowRegistry.js";
 import { extractWorkflowEnvelope } from "../workflows/workflowState.js";
 import { ModelClient, ModelTurnResult } from "./modelClient.js";
 
@@ -222,6 +222,16 @@ export class AiReceptionistOrchestrator {
       ok: typeof toolResult === "object" && toolResult !== null && "ok" in toolResult ? (toolResult as { ok?: unknown }).ok : undefined,
       durationMs: Date.now() - toolStartedAt
     });
+
+    const toolPolicyDecision = applyWorkflowToolResultPolicies(session, result.toolRequest.name, toolResult);
+    if (toolPolicyDecision?.repromptContext) {
+      return this.modelClient.continueWithPolicyInstruction(
+        session,
+        toolPolicyDecision.instruction
+          ?? "A workflow verification boundary is active. Continue the active workflow using the provided boundary context.",
+        toolPolicyDecision.repromptContext
+      );
+    }
 
     const followupModelStartedAt = Date.now();
     const finalResult = await this.modelClient.continueWithToolResult(session, toolResult);

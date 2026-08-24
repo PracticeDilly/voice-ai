@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { CallSession } from "../../src/calls/callSession.js";
-import { applyWorkflowTurnPolicies } from "../../src/workflows/shared/workflowRegistry.js";
+import { applyWorkflowToolResultPolicies, applyWorkflowTurnPolicies } from "../../src/workflows/shared/workflowRegistry.js";
 
 test("forces fresh appointment lookup for follow-up questions after confirmation", () => {
   const decision = applyWorkflowTurnPolicies(session({
@@ -18,8 +18,8 @@ test("forces fresh appointment lookup for follow-up questions after confirmation
   });
   const result = decision?.overrideResult;
 
-  assert.equal(result.toolRequest?.name, "GET_NEXT_APPOINTMENT");
-  assert.deepEqual(result.toolRequest?.arguments, {
+  assert.equal(result?.toolRequest?.name, "GET_NEXT_APPOINTMENT");
+  assert.deepEqual(result?.toolRequest?.arguments, {
     firstName: "Kim",
     dob: "10/18/1999"
   });
@@ -57,8 +57,8 @@ test("retries appointment lookup instead of creating handoff when patient correc
   });
   const result = decision?.overrideResult;
 
-  assert.equal(result.toolRequest?.name, "GET_NEXT_APPOINTMENT");
-  assert.deepEqual(result.toolRequest?.arguments, {
+  assert.equal(result?.toolRequest?.name, "GET_NEXT_APPOINTMENT");
+  assert.deepEqual(result?.toolRequest?.arguments, {
     firstName: "Kim",
     dob: "10/18/1999"
   });
@@ -107,9 +107,22 @@ test("prefers confirmation execution over fallback when confirmation is ready", 
   });
   const result = decision?.overrideResult;
 
-  assert.equal(result.toolRequest?.name, "CONFIRM_APPOINTMENT");
-  assert.equal(result.toolRequest?.arguments.appointmentId, 502);
-  assert.equal(result.toolRequest?.arguments.callerConfirmedSelectedAppointment, undefined);
+  assert.equal(result?.toolRequest?.name, "CONFIRM_APPOINTMENT");
+  assert.equal(result?.toolRequest?.arguments.appointmentId, 502);
+  assert.equal(result?.toolRequest?.arguments.callerConfirmedSelectedAppointment, undefined);
+});
+
+test("executes confirmation once selection and caller authorization are already structured", () => {
+  const decision = applyWorkflowTurnPolicies(session({
+    pendingAppointmentId: 503,
+    pendingStatus: "READY_TO_EXECUTE"
+  }), {
+    reply: "I have your confirmation."
+  });
+  const result = decision?.overrideResult;
+
+  assert.equal(result?.toolRequest?.name, "CONFIRM_APPOINTMENT");
+  assert.equal(result?.toolRequest?.arguments.appointmentId, 503);
 });
 
 test("prefers confirmation flow over fallback when a selected appointment exists", () => {
@@ -171,13 +184,40 @@ test("asks the caller to spell the name before falling back to staff on patient-
   assert.equal(decision?.repromptContext?.identity?.lastName, "Miller");
 });
 
+test("asks the caller to spell the name after lookup failure before falling back to staff", () => {
+  const decision = applyWorkflowToolResultPolicies(session({
+    currentIntent: "NEXT_APPOINTMENT",
+    collectedFields: {
+      firstName: "Kima",
+      lastName: "Miller"
+    },
+    workflowState: {
+      contractVersion: 1,
+      workflow: "NEXT_APPOINTMENT",
+      state: "FAILED",
+      allowedActions: ["GET_NEXT_APPOINTMENT", "CREATE_HANDOFF_REQUEST"],
+      failureReason: "PATIENT_NOT_FOUND",
+      context: {
+        patientVerified: false,
+        canDisclosePatientData: false
+      }
+    }
+  }), "GET_NEXT_APPOINTMENT", { ok: true });
+
+  assert.match(decision?.instruction ?? "", /spell the name/i);
+  assert.equal(decision?.repromptContext?.type, "ASK_CALLER_TO_SPELL_NAME");
+});
+
 function session(input: {
+  currentIntent?: string;
   collectedFields?: Record<string, unknown>;
   lastToolResults?: Record<string, unknown>;
   failureReason?: string;
   pendingAppointmentId?: unknown;
   pendingStatus?: "AWAITING_CALLER_CONFIRMATION" | "READY_TO_EXECUTE";
+  pendingIdentityStatus?: "NEEDS_NAME_SPELLING";
   selectionOptions?: Array<{ appointmentId: unknown; appointmentDate: string; doctorName?: string }>;
+  workflowState?: CallSession["workflowState"];
 }): CallSession {
   return {
     callSid: "CA-test",
@@ -187,13 +227,21 @@ function session(input: {
     transcript: [],
     collectedFields: input.collectedFields ?? {},
     lastToolResults: input.lastToolResults ?? {},
-    pendingActions: input.pendingAppointmentId ? {
-      CONFIRM_APPOINTMENT: {
-        appointmentId: input.pendingAppointmentId,
-        status: input.pendingStatus ?? "AWAITING_CALLER_CONFIRMATION",
-        createdAt: "2026-08-19T00:00:00.000Z"
-      }
-    } : {},
+    pendingActions: {
+      ...(input.pendingAppointmentId ? {
+        CONFIRM_APPOINTMENT: {
+          appointmentId: input.pendingAppointmentId,
+          status: input.pendingStatus ?? "AWAITING_CALLER_CONFIRMATION",
+          createdAt: "2026-08-19T00:00:00.000Z"
+        }
+      } : {}),
+      ...(input.pendingIdentityStatus ? {
+        VERIFY_PATIENT_IDENTITY: {
+          status: input.pendingIdentityStatus,
+          createdAt: "2026-08-19T00:00:00.000Z"
+        }
+      } : {})
+    },
     appointmentSelections: input.selectionOptions ? {
       CONFIRM_APPOINTMENT: {
         options: input.selectionOptions.map((selection) => ({
@@ -203,8 +251,8 @@ function session(input: {
         createdAt: "2026-08-19T00:00:00.000Z"
       }
     } : {},
-    currentIntent: "CONFIRM_APPOINTMENT",
-    workflowState: input.failureReason ? {
+    currentIntent: input.currentIntent ?? "CONFIRM_APPOINTMENT",
+    workflowState: input.workflowState ?? (input.failureReason ? {
       contractVersion: 1,
       workflow: "NEXT_APPOINTMENT",
       state: "FAILED",
@@ -214,7 +262,7 @@ function session(input: {
         patientVerified: false,
         canDisclosePatientData: false
       }
-    } : undefined
+    } : undefined)
   };
 }
 

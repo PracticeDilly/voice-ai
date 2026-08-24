@@ -19,12 +19,12 @@ function applyConfirmationExecutionBoundary(
   session: CallSession,
   result: ModelTurnResult
 ): ToolPolicyDecision | undefined {
-  if (!isConfirmIntent(session.currentIntent) || !isFallbackToolRequest(result.toolRequest?.name)) {
+  if (!isConfirmIntent(session.currentIntent)) {
     return undefined;
   }
 
   const context = createConfirmAppointmentTurnContext(session, result);
-  if (context.pendingConfirmationStatus === "READY_TO_EXECUTE") {
+  if (context.pendingConfirmationStatus === "READY_TO_EXECUTE" && result.toolRequest?.name !== "CONFIRM_APPOINTMENT") {
     return {
       overrideResult: {
         ...result,
@@ -71,8 +71,4 @@ function applyConfirmationExecutionBoundary(
 
 function isConfirmIntent(intent: string | undefined): boolean {
   return typeof intent === "string" && intent.trim().toUpperCase() === "CONFIRM_APPOINTMENT";
-}
-
-function isFallbackToolRequest(toolName: string | undefined): boolean {
-  return toolName === "TRANSFER_TO_STAFF" || toolName === "CREATE_HANDOFF_REQUEST";
 }

@@ -36,4 +36,5 @@ export interface ConversationWorkflow {
   name: string;
   toolAdapter?: WorkflowToolAdapter;
   applyTurnPolicy?(session: CallSession, result: ModelTurnResult): ToolPolicyDecision | undefined;
+  applyToolResultPolicy?(session: CallSession, toolName: string, toolResult: unknown): ToolPolicyDecision | undefined;
 }
