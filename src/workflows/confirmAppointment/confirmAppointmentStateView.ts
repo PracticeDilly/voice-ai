@@ -9,6 +9,10 @@ export class ConfirmAppointmentStateView {
     return this.workflowState.workflowName() === CONFIRM_APPOINTMENT_WORKFLOW;
   }
 
+  isCompleted(): boolean {
+    return this.isActive() && this.workflowState.state() === "COMPLETED";
+  }
+
   selectedAppointmentId(): unknown {
     return this.workflowState.selectedAppointmentId();
   }

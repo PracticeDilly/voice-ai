@@ -125,6 +125,28 @@ test("executes confirmation once selection and caller authorization are already 
   assert.equal(result?.toolRequest?.arguments.appointmentId, 503);
 });
 
+test("answers from completed confirmation state instead of re-confirming", () => {
+  const decision = applyWorkflowTurnPolicies(session({
+    workflowState: {
+      contractVersion: 1,
+      workflow: "CONFIRM_APPOINTMENT",
+      state: "COMPLETED",
+      allowedActions: [],
+      context: {
+        selectedAppointmentId: 503,
+        alreadyConfirmed: false
+      }
+    }
+  }), {
+    intent: "CONFIRM_APPOINTMENT",
+    reply: "I am confirming your appointment now."
+  });
+
+  assert.equal(decision?.overrideResult, undefined);
+  assert.equal(decision?.repromptContext?.type, "CONFIRMATION_COMPLETED");
+  assert.match(decision?.instruction ?? "", /already completed/i);
+});
+
 test("prefers confirmation flow over fallback when a selected appointment exists", () => {
   const decision = applyWorkflowTurnPolicies(session({
     pendingAppointmentId: 503,
@@ -161,6 +183,26 @@ test("asks the caller to choose instead of falling back when confirmable options
   assert.equal(decision?.overrideResult, undefined);
   assert.equal(decision?.repromptContext?.type, "CHOOSE_CONFIRMABLE_APPOINTMENT");
   assert.equal(decision?.repromptContext?.options?.length, 2);
+});
+
+test("uses completed confirmation state after a successful confirm tool result", () => {
+  const decision = applyWorkflowToolResultPolicies(session({
+    workflowState: {
+      contractVersion: 1,
+      workflow: "CONFIRM_APPOINTMENT",
+      state: "COMPLETED",
+      allowedActions: [],
+      context: {
+        selectedAppointmentId: 503,
+        alreadyConfirmed: false
+      }
+    }
+  }), "CONFIRM_APPOINTMENT", {
+    ok: true
+  });
+
+  assert.equal(decision?.repromptContext?.type, "CONFIRMATION_COMPLETED");
+  assert.match(decision?.instruction ?? "", /already completed successfully/i);
 });
 
 test("asks the caller to spell the name before falling back to staff on patient-not-found", () => {

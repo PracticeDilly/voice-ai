@@ -2,6 +2,8 @@ import { CallSession } from "../../calls/callSession.js";
 import { ModelTurnResult } from "../../conversation/modelClient.js";
 import { normalizeAppointmentId } from "../../appointments/appointmentId.js";
 import { ConversationWorkflow, ToolPolicyDecision } from "../shared/workflowTypes.js";
+import { WorkflowStateView } from "../shared/workflowStateView.js";
+import { ConfirmAppointmentStateView } from "./confirmAppointmentStateView.js";
 import { ConfirmAppointmentToolAdapter } from "./confirmAppointmentToolAdapter.js";
 import { createConfirmAppointmentTurnContext } from "./confirmAppointmentTurnContext.js";
 
@@ -12,6 +14,9 @@ export const confirmAppointmentWorkflow: ConversationWorkflow = {
   toolAdapter,
   applyTurnPolicy(session: CallSession, result: ModelTurnResult): ToolPolicyDecision | undefined {
     return applyConfirmationExecutionBoundary(session, result);
+  },
+  applyToolResultPolicy(session: CallSession, toolName: string, toolResult: unknown): ToolPolicyDecision | undefined {
+    return applyConfirmationCompletionBoundary(session, toolName, toolResult);
   }
 };
 
@@ -24,6 +29,18 @@ function applyConfirmationExecutionBoundary(
   }
 
   const context = createConfirmAppointmentTurnContext(session, result);
+  if (shouldAnswerFromCompletedConfirmation(context)) {
+    return {
+      instruction: "The appointment confirmation workflow is already completed. Answer the caller using the completed backend state. Do not say you are confirming it now, and do not request another confirmation tool unless the caller clearly asks to confirm a different appointment.",
+      repromptContext: {
+        type: "CONFIRMATION_COMPLETED",
+        selectedAppointment: {
+          appointmentId: context.stateView.selectedAppointmentId()
+        }
+      }
+    };
+  }
+
   if (context.pendingConfirmationStatus === "READY_TO_EXECUTE" && result.toolRequest?.name !== "CONFIRM_APPOINTMENT") {
     return {
       overrideResult: {
@@ -71,4 +88,51 @@ function applyConfirmationExecutionBoundary(
 
 function isConfirmIntent(intent: string | undefined): boolean {
   return typeof intent === "string" && intent.trim().toUpperCase() === "CONFIRM_APPOINTMENT";
+}
+
+function applyConfirmationCompletionBoundary(
+  session: CallSession,
+  toolName: string,
+  toolResult: unknown
+): ToolPolicyDecision | undefined {
+  if (toolName !== "CONFIRM_APPOINTMENT" || !isSuccessfulToolResult(toolResult)) {
+    return undefined;
+  }
+
+  const stateView = new ConfirmAppointmentStateView(new WorkflowStateView(session.workflowState));
+  if (!stateView.isCompleted()) {
+    return undefined;
+  }
+
+  return {
+    instruction: "The appointment confirmation has already completed successfully. Thank the caller or state the completed result using the backend workflow state. Do not say you are confirming it now, and do not ask for the same confirmation again.",
+    repromptContext: {
+      type: "CONFIRMATION_COMPLETED",
+      selectedAppointment: {
+        appointmentId: stateView.selectedAppointmentId()
+      }
+    }
+  };
+}
+
+function shouldAnswerFromCompletedConfirmation(
+  context: ReturnType<typeof createConfirmAppointmentTurnContext>
+): boolean {
+  if (!context.stateView.isCompleted()) {
+    return false;
+  }
+
+  if (context.pendingConfirmationStatus || context.pendingSelection || context.selectionOptions.length > 0) {
+    return false;
+  }
+
+  return isConfirmIntent(context.result.intent)
+    || context.result.toolRequest?.name === "CONFIRM_APPOINTMENT";
+}
+
+function isSuccessfulToolResult(toolResult: unknown): boolean {
+  return !!toolResult
+    && typeof toolResult === "object"
+    && "ok" in toolResult
+    && (toolResult as { ok?: unknown }).ok === true;
 }

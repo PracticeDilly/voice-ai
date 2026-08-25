@@ -3,7 +3,7 @@ import { CallSession } from "../../calls/callSession.js";
 import { ModelTurnResult } from "../../conversation/modelClient.js";
 
 export interface ToolPolicyBoundaryContext {
-  type: "CONFIRM_SELECTED_APPOINTMENT" | "CHOOSE_CONFIRMABLE_APPOINTMENT" | "ASK_CALLER_TO_SPELL_NAME";
+  type: "CONFIRM_SELECTED_APPOINTMENT" | "CHOOSE_CONFIRMABLE_APPOINTMENT" | "CONFIRMATION_COMPLETED" | "ASK_CALLER_TO_SPELL_NAME";
   selectedAppointment?: {
     appointmentId: unknown;
     appointmentDate?: string;
