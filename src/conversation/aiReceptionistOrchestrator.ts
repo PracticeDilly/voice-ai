@@ -197,6 +197,7 @@ export class AiReceptionistOrchestrator {
     session.lastToolResults[result.toolRequest.name] = toolResult;
     session.workflowState = extractWorkflowEnvelope(toolResult) ?? session.workflowState;
     syncConfirmAppointmentFromLookup(session, result.toolRequest.name, toolResult, session.currentIntent);
+    promoteConfirmAppointmentPendingAction(session);
     invalidateAppointmentLookupCacheAfterConfirmation(session, result.toolRequest.name, toolResult);
     consumeConfirmAppointmentPendingAction(session, result.toolRequest.name, toolResult);
     consumePendingHandoffRequest(session, result.toolRequest.name, toolResult);
@@ -224,6 +225,9 @@ export class AiReceptionistOrchestrator {
     });
 
     const toolPolicyDecision = applyWorkflowToolResultPolicies(session, result.toolRequest.name, toolResult);
+    if (toolPolicyDecision?.overrideResult) {
+      return this.resolveModelResult(session, toolPolicyDecision.overrideResult);
+    }
     if (toolPolicyDecision?.repromptContext) {
       return this.modelClient.continueWithPolicyInstruction(
         session,

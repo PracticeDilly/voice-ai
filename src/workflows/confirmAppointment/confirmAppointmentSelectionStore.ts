@@ -50,7 +50,17 @@ export function selectedConfirmAppointmentOption(
     return undefined;
   }
 
-  const matches = options.filter((option) => normalizedText(option.appointmentDate) === selectedDate);
+  const exactMatches = options.filter((option) => normalizedText(option.appointmentDate) === selectedDate);
+  if (exactMatches.length === 1) {
+    return exactMatches[0];
+  }
+
+  const relaxedMatches = options.filter((option) => appointmentDateMatches(option.appointmentDate, selectedDate));
+  if (relaxedMatches.length === 1) {
+    return relaxedMatches[0];
+  }
+
+  const matches = exactMatches.length > 0 ? exactMatches : relaxedMatches;
   return matches.length === 1 ? matches[0] : undefined;
 }
 
@@ -141,4 +151,27 @@ function normalizedText(value: unknown): string | undefined {
   }
 
   return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function appointmentDateMatches(appointmentDate: string | undefined, selectedDate: string): boolean {
+  const optionDate = normalizedDateText(appointmentDate);
+  const requestedDate = normalizedDateText(selectedDate);
+  if (!optionDate || !requestedDate) {
+    return false;
+  }
+
+  return optionDate.includes(requestedDate) || requestedDate.includes(optionDate);
+}
+
+function normalizedDateText(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) {
+    return undefined;
+  }
+
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }

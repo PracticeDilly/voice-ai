@@ -205,6 +205,54 @@ test("uses completed confirmation state after a successful confirm tool result",
   assert.match(decision?.instruction ?? "", /already completed successfully/i);
 });
 
+test("forces appointment choice after confirm-intent lookup with multiple confirmable appointments", () => {
+  const decision = applyWorkflowToolResultPolicies(session({
+    currentIntent: "CONFIRM_APPOINTMENT",
+    workflowState: {
+      contractVersion: 1,
+      workflow: "NEXT_APPOINTMENT",
+      state: "COMPLETED",
+      allowedActions: [],
+      context: {
+        patientVerified: true,
+        canDisclosePatientData: true
+      }
+    },
+    selectionOptions: [
+      option(502, "9:20 AM on Friday, August 29, 2026"),
+      option(503, "10:00 AM on Saturday, August 30, 2026")
+    ]
+  }), "GET_NEXT_APPOINTMENT", {
+    ok: true
+  });
+
+  assert.equal(decision?.repromptContext?.type, "CHOOSE_CONFIRMABLE_APPOINTMENT");
+  assert.match(decision?.instruction ?? "", /multiple confirmable appointments/i);
+});
+
+test("executes confirmation after lookup when selection and authorization are already available", () => {
+  const decision = applyWorkflowToolResultPolicies(session({
+    currentIntent: "CONFIRM_APPOINTMENT",
+    pendingAppointmentId: 503,
+    pendingStatus: "READY_TO_EXECUTE",
+    workflowState: {
+      contractVersion: 1,
+      workflow: "NEXT_APPOINTMENT",
+      state: "COMPLETED",
+      allowedActions: [],
+      context: {
+        patientVerified: true,
+        canDisclosePatientData: true
+      }
+    }
+  }), "GET_NEXT_APPOINTMENT", {
+    ok: true
+  });
+
+  assert.equal(decision?.overrideResult?.toolRequest?.name, "CONFIRM_APPOINTMENT");
+  assert.equal(decision?.overrideResult?.toolRequest?.arguments.appointmentId, 503);
+});
+
 test("asks the caller to spell the name before falling back to staff on patient-not-found", () => {
   const decision = applyWorkflowTurnPolicies(session({
     collectedFields: {

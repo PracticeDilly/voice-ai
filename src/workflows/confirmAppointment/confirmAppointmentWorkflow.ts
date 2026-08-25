@@ -16,6 +16,11 @@ export const confirmAppointmentWorkflow: ConversationWorkflow = {
     return applyConfirmationExecutionBoundary(session, result);
   },
   applyToolResultPolicy(session: CallSession, toolName: string, toolResult: unknown): ToolPolicyDecision | undefined {
+    const lookupDecision = applyConfirmationLookupBoundary(session, toolName, toolResult);
+    if (lookupDecision) {
+      return lookupDecision;
+    }
+
     return applyConfirmationCompletionBoundary(session, toolName, toolResult);
   }
 };
@@ -88,6 +93,61 @@ function applyConfirmationExecutionBoundary(
 
 function isConfirmIntent(intent: string | undefined): boolean {
   return typeof intent === "string" && intent.trim().toUpperCase() === "CONFIRM_APPOINTMENT";
+}
+
+function applyConfirmationLookupBoundary(
+  session: CallSession,
+  toolName: string,
+  toolResult: unknown
+): ToolPolicyDecision | undefined {
+  if (toolName !== "GET_NEXT_APPOINTMENT" || !isConfirmIntent(session.currentIntent) || !isSuccessfulToolResult(toolResult)) {
+    return undefined;
+  }
+
+  const context = createConfirmAppointmentTurnContext(session, {});
+  if (context.pendingConfirmationStatus === "READY_TO_EXECUTE") {
+    return {
+      overrideResult: {
+        intent: "CONFIRM_APPOINTMENT",
+        toolRequest: {
+          name: "CONFIRM_APPOINTMENT",
+          arguments: {
+            appointmentId: session.pendingActions.CONFIRM_APPOINTMENT?.appointmentId
+          }
+        }
+      }
+    };
+  }
+
+  if (context.pendingSelection) {
+    return {
+      instruction: "A confirmation boundary is active for the selected appointment. Ask the caller only to confirm the selected appointment before any state-changing tool request.",
+      repromptContext: {
+        type: "CONFIRM_SELECTED_APPOINTMENT",
+        selectedAppointment: {
+          appointmentId: context.pendingSelection.appointmentId,
+          appointmentDate: context.pendingSelection.appointmentDate,
+          doctorName: context.pendingSelection.doctorName
+        }
+      }
+    };
+  }
+
+  if (context.selectionOptions.length > 0) {
+    return {
+      instruction: "A confirmation boundary is active with multiple confirmable appointments. Ask the caller which appointment they want to confirm before any state-changing tool request.",
+      repromptContext: {
+        type: "CHOOSE_CONFIRMABLE_APPOINTMENT",
+        options: context.selectionOptions.map((option) => ({
+          appointmentId: option.appointmentId,
+          appointmentDate: option.appointmentDate,
+          doctorName: option.doctorName
+        }))
+      }
+    };
+  }
+
+  return undefined;
 }
 
 function applyConfirmationCompletionBoundary(

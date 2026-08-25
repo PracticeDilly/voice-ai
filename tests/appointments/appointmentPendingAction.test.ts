@@ -107,6 +107,24 @@ test("selects a confirmable appointment by structured appointment date", () => {
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "AWAITING_CALLER_CONFIRMATION");
 });
 
+test("selects a confirmable appointment by date-only phrase", () => {
+  const callSession = session();
+  callSession.currentIntent = "CONFIRM_APPOINTMENT";
+  callSession.collectedFields.selectedAppointmentDate = "August 24, 2026";
+  callSession.appointmentSelections.CONFIRM_APPOINTMENT = {
+    createdAt: "2026-08-17T00:00:00.000Z",
+    options: [
+      option(501, "9:00 AM on Thursday, August 21, 2026"),
+      option(502, "10:00 AM on Monday, August 24, 2026")
+    ]
+  };
+
+  promoteConfirmAppointmentPendingAction(callSession);
+
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.appointmentId, 502);
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "AWAITING_CALLER_CONFIRMATION");
+});
+
 test("does not create pending confirmation for non-confirm intent names containing confirm text", () => {
   const callSession = session();
 
