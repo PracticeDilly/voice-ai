@@ -1,6 +1,7 @@
 import { CallSession } from "../../calls/callSession.js";
 import { ModelTurnResult } from "../../conversation/modelClient.js";
 import { ConversationWorkflow, ToolPolicyDecision } from "../shared/workflowTypes.js";
+import { retryToolWithKnownRequiredField } from "../shared/workflowFieldSupport.js";
 import { WorkflowStateView } from "../shared/workflowStateView.js";
 import { createNextAppointmentTurnContext } from "./nextAppointmentTurnContext.js";
 import { NextAppointmentStateView } from "./nextAppointmentStateView.js";
@@ -13,6 +14,17 @@ export const nextAppointmentWorkflow: ConversationWorkflow = {
   toolAdapter,
   applyTurnPolicy(session: CallSession, result: ModelTurnResult): ToolPolicyDecision | undefined {
     const context = createNextAppointmentTurnContext(session, result);
+
+    const requiredFieldRetry = retryToolWithKnownRequiredField({
+      session,
+      result,
+      stateView: new WorkflowStateView(session.workflowState),
+      retryToolName: "GET_NEXT_APPOINTMENT",
+      extraArguments: context.updatedIdentityFields
+    });
+    if (requiredFieldRetry) {
+      return requiredFieldRetry;
+    }
 
     if (shouldContinueIdentityVerification(context)) {
       return {

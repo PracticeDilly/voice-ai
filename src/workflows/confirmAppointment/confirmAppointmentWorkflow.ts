@@ -1,6 +1,7 @@
 import { CallSession } from "../../calls/callSession.js";
 import { ModelTurnResult } from "../../conversation/modelClient.js";
 import { normalizeAppointmentId } from "../../appointments/appointmentId.js";
+import { retryToolWithKnownRequiredField } from "../shared/workflowFieldSupport.js";
 import { ConversationWorkflow, ToolPolicyDecision } from "../shared/workflowTypes.js";
 import { WorkflowStateView } from "../shared/workflowStateView.js";
 import { ConfirmAppointmentStateView } from "./confirmAppointmentStateView.js";
@@ -34,6 +35,16 @@ function applyConfirmationExecutionBoundary(
   }
 
   const context = createConfirmAppointmentTurnContext(session, result);
+  const requiredFieldRetry = retryToolWithKnownRequiredField({
+    session,
+    result,
+    stateView: new WorkflowStateView(session.workflowState),
+    retryToolName: "GET_NEXT_APPOINTMENT"
+  });
+  if (requiredFieldRetry) {
+    return requiredFieldRetry;
+  }
+
   if (shouldAnswerFromCompletedConfirmation(context)) {
     return {
       instruction: "The appointment confirmation workflow is already completed. Answer the caller using the completed backend state. Do not say you are confirming it now, and do not request another confirmation tool unless the caller clearly asks to confirm a different appointment.",

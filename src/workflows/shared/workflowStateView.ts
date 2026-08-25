@@ -11,12 +11,23 @@ export class WorkflowStateView {
     return this.workflowState?.state;
   }
 
+  requiredField(): string | undefined {
+    const requiredField = this.workflowState?.requiredField;
+    return typeof requiredField === "string" && requiredField.trim().length > 0
+      ? requiredField
+      : undefined;
+  }
+
   failureReason(): string | null | undefined {
     return this.workflowState?.failureReason;
   }
 
   allowedActions(): string[] {
     return this.workflowState?.allowedActions ?? [];
+  }
+
+  allowsAction(actionName: string): boolean {
+    return this.allowedActions().includes(actionName);
   }
 
   contextValue<T = unknown>(key: string): T | undefined {

@@ -9,6 +9,14 @@ export class NextAppointmentStateView {
     return this.workflowState.workflowName() === NEXT_APPOINTMENT_WORKFLOW;
   }
 
+  requiredField(): string | undefined {
+    return this.workflowState.requiredField();
+  }
+
+  needsInput(): boolean {
+    return this.workflowState.state() === "NEEDS_INPUT";
+  }
+
   isPatientNotFound(): boolean {
     return this.workflowState.state() === "FAILED"
       && this.workflowState.failureReason() === "PATIENT_NOT_FOUND";

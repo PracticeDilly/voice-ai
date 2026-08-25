@@ -104,7 +104,7 @@ test("selects a confirmable appointment by structured appointment date", () => {
   promoteConfirmAppointmentPendingAction(callSession);
 
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.appointmentId, 502);
-  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "AWAITING_CALLER_CONFIRMATION");
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "READY_TO_EXECUTE");
 });
 
 test("selects a confirmable appointment by date-only phrase", () => {
@@ -122,7 +122,29 @@ test("selects a confirmable appointment by date-only phrase", () => {
   promoteConfirmAppointmentPendingAction(callSession);
 
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.appointmentId, 502);
-  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "AWAITING_CALLER_CONFIRMATION");
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "READY_TO_EXECUTE");
+});
+
+test("promotes selected appointment after lookup creates fresh options for the same confirm turn", () => {
+  const callSession = session();
+  callSession.currentIntent = "CONFIRM_APPOINTMENT";
+  callSession.collectedFields.selectedAppointmentDate = "August 26, 2026";
+
+  syncConfirmAppointmentFromLookup(callSession, "GET_NEXT_APPOINTMENT", {
+    name: "GET_NEXT_APPOINTMENT",
+    ok: true,
+    data: {
+      upcomingAppointments: [
+        appointment(501, "10:00 AM on Wednesday, August 26, 2026"),
+        appointment(502, "8:20 AM on Thursday, August 27, 2026")
+      ]
+    }
+  }, "CONFIRM_APPOINTMENT");
+
+  promoteConfirmAppointmentPendingAction(callSession);
+
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.appointmentId, 501);
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "READY_TO_EXECUTE");
 });
 
 test("does not create pending confirmation for non-confirm intent names containing confirm text", () => {

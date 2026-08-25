@@ -44,10 +44,10 @@ export function hydrateConfirmAppointmentSelections(session: CallSession): void 
 }
 
 export function promoteConfirmAppointmentPendingAction(session: CallSession, tool?: ToolRequest): void {
-  syncSelectedConfirmAppointment(session, tool);
+  const selectedInCurrentTurn = syncSelectedConfirmAppointment(session, tool);
 
   const pending = session.pendingActions.CONFIRM_APPOINTMENT;
-  if (!pending || !callerConfirmedSelectedAppointment(session)) {
+  if (!pending || !callerAuthorizedSelectedAppointment(session, selectedInCurrentTurn)) {
     return;
   }
 
@@ -120,20 +120,20 @@ export function prepareConfirmAppointmentTool(session: CallSession, tool: ToolRe
   };
 }
 
-function syncSelectedConfirmAppointment(session: CallSession, tool: ToolRequest | undefined): void {
+function syncSelectedConfirmAppointment(session: CallSession, tool: ToolRequest | undefined): boolean {
   if (!isConfirmIntent(session.currentIntent)) {
-    return;
+    return false;
   }
 
   const option = selectedConfirmAppointmentOption(session, tool?.arguments);
   if (!option) {
-    return;
+    return false;
   }
 
   const selectedAppointmentId = normalizeAppointmentId(option.appointmentId);
   const pendingAppointmentId = normalizeAppointmentId(session.pendingActions.CONFIRM_APPOINTMENT?.appointmentId);
   if (!selectedAppointmentId || selectedAppointmentId === pendingAppointmentId) {
-    return;
+    return false;
   }
 
   session.pendingActions.CONFIRM_APPOINTMENT = {
@@ -141,10 +141,15 @@ function syncSelectedConfirmAppointment(session: CallSession, tool: ToolRequest 
     status: "AWAITING_CALLER_CONFIRMATION",
     createdAt: new Date().toISOString()
   };
+  return true;
 }
 
-function callerConfirmedSelectedAppointment(session: CallSession): boolean {
-  return session.collectedFields.callerConfirmedSelectedAppointment === true;
+function callerAuthorizedSelectedAppointment(
+  session: CallSession,
+  selectedInCurrentTurn: boolean
+): boolean {
+  return session.collectedFields.callerConfirmedSelectedAppointment === true
+    || selectedInCurrentTurn;
 }
 
 function isConfirmIntent(intent: string | undefined): boolean {

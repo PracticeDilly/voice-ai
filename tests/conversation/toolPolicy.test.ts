@@ -64,6 +64,67 @@ test("retries appointment lookup instead of creating handoff when patient correc
   });
 });
 
+test("retries next-appointment lookup when required first name is already known", () => {
+  const decision = applyWorkflowTurnPolicies(session({
+    collectedFields: {
+      firstName: "Nancy",
+      dob: "04/01/2000"
+    },
+    workflowState: {
+      contractVersion: 1,
+      workflow: "NEXT_APPOINTMENT",
+      state: "NEEDS_INPUT",
+      requiredField: "firstName",
+      allowedActions: ["GET_NEXT_APPOINTMENT"],
+      context: {
+        patientVerified: false,
+        canDisclosePatientData: false
+      }
+    }
+  }), {
+    intent: "NEXT_APPOINTMENT",
+    reply: "Could you please provide your first name?"
+  });
+
+  assert.equal(decision?.overrideResult?.toolRequest?.name, "GET_NEXT_APPOINTMENT");
+  assert.deepEqual(decision?.overrideResult?.toolRequest?.arguments, {
+    firstName: "Nancy",
+    dob: "04/01/2000"
+  });
+});
+
+test("retries confirm lookup when required date of birth is already known", () => {
+  const decision = applyWorkflowTurnPolicies(session({
+    currentIntent: "CONFIRM_APPOINTMENT",
+    collectedFields: {
+      firstName: "Nancy",
+      lastName: "Jones",
+      dob: "04/01/2000"
+    },
+    workflowState: {
+      contractVersion: 1,
+      workflow: "CONFIRM_APPOINTMENT",
+      state: "NEEDS_INPUT",
+      requiredField: "dob",
+      allowedActions: ["GET_NEXT_APPOINTMENT"],
+      context: {
+        patientVerified: false,
+        canDisclosePatientData: false
+      }
+    }
+  }), {
+    intent: "CONFIRM_APPOINTMENT",
+    reply: "Could you please provide your date of birth?"
+  });
+
+  assert.equal(decision?.overrideResult?.toolRequest?.name, "GET_NEXT_APPOINTMENT");
+  assert.deepEqual(decision?.overrideResult?.toolRequest?.arguments, {
+    firstName: "Nancy",
+    lastName: "Jones",
+    dob: "04/01/2000"
+  });
+});
+
 test("keeps handoff when caller did not provide corrected identity", () => {
   const original = {
     toolRequest: {
