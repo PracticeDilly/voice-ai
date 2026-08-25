@@ -178,6 +178,51 @@ test("promotes pending confirmation after structured caller confirmation", () =>
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT.status, "READY_TO_EXECUTE");
 });
 
+test("promotes single looked-up appointment when caller already said to confirm it", () => {
+  const callSession = session();
+  callSession.currentIntent = "CONFIRM_APPOINTMENT";
+  callSession.collectedFields.callerConfirmedSelectedAppointment = true;
+
+  syncConfirmAppointmentFromLookup(callSession, "GET_NEXT_APPOINTMENT", {
+    name: "GET_NEXT_APPOINTMENT",
+    ok: true,
+    data: {
+      appointmentId: 501,
+      appointmentDate: "10:00 AM on Wednesday, August 26, 2026",
+      doctorName: "Dr. David Johnson",
+      alreadyConfirmed: false
+    }
+  }, "CONFIRM_APPOINTMENT");
+
+  promoteConfirmAppointmentPendingAction(callSession);
+
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.appointmentId, 501);
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "READY_TO_EXECUTE");
+});
+
+test("promotes selected appointment from multiple options when caller names it and says to confirm it", () => {
+  const callSession = session();
+  callSession.currentIntent = "CONFIRM_APPOINTMENT";
+  callSession.collectedFields.selectedAppointmentDate = "August 26, 2026 at 10:00 AM";
+  callSession.collectedFields.callerConfirmedSelectedAppointment = true;
+
+  syncConfirmAppointmentFromLookup(callSession, "GET_NEXT_APPOINTMENT", {
+    name: "GET_NEXT_APPOINTMENT",
+    ok: true,
+    data: {
+      upcomingAppointments: [
+        appointment(501, "10:00 AM on Wednesday, August 26, 2026"),
+        appointment(502, "8:20 AM on Thursday, August 27, 2026")
+      ]
+    }
+  }, "CONFIRM_APPOINTMENT");
+
+  promoteConfirmAppointmentPendingAction(callSession);
+
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.appointmentId, 501);
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "READY_TO_EXECUTE");
+});
+
 test("does not promote pending confirmation from tool arguments alone", () => {
   const callSession = session();
   callSession.pendingActions.CONFIRM_APPOINTMENT = {

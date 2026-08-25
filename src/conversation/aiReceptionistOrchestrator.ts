@@ -229,7 +229,7 @@ export class AiReceptionistOrchestrator {
       return this.resolveModelResult(session, toolPolicyDecision.overrideResult);
     }
     if (toolPolicyDecision?.repromptContext) {
-      return this.modelClient.continueWithPolicyInstruction(
+      return this.continueFromPolicyReprompt(
         session,
         toolPolicyDecision.instruction
           ?? "A workflow verification boundary is active. Continue the active workflow using the provided boundary context.",
@@ -260,7 +260,7 @@ export class AiReceptionistOrchestrator {
     };
 
     if (policyDecision.repromptContext) {
-      return this.modelClient.continueWithPolicyInstruction(
+      return this.continueFromPolicyReprompt(
         session,
         policyDecision.instruction
           ?? "A workflow execution boundary is active. Continue the active workflow using the provided boundary context. Do not use fallback staff transfer or follow-up unless the caller explicitly asks for staff or the backend requires handoff.",
@@ -269,6 +269,33 @@ export class AiReceptionistOrchestrator {
     }
 
     return this.resolveModelResult(session, policyDecision.overrideResult ?? firstResult);
+  }
+
+  private async continueFromPolicyReprompt(
+    session: CallSession,
+    instruction: string,
+    boundaryContext?: Parameters<ModelClient["continueWithPolicyInstruction"]>[2]
+  ): Promise<ModelTurnResult> {
+    const repromptResult = await this.modelClient.continueWithPolicyInstruction(session, instruction, boundaryContext);
+
+    if (repromptResult.intent) {
+      session.currentIntent = repromptResult.intent;
+    }
+    if (repromptResult.collectedFields) {
+      session.collectedFields = {
+        ...session.collectedFields,
+        ...repromptResult.collectedFields
+      };
+    }
+
+    hydrateConfirmAppointmentSelections(session);
+    promoteConfirmAppointmentPendingAction(session, repromptResult.toolRequest);
+
+    if (!repromptResult.toolRequest && session.pendingActions.CONFIRM_APPOINTMENT?.status !== "READY_TO_EXECUTE") {
+      return repromptResult;
+    }
+
+    return this.resolvePolicyAwareModelResult(session, repromptResult);
   }
 
   private shouldTransferToStaff(firstResult: ModelTurnResult, finalResult: ModelTurnResult): boolean {
