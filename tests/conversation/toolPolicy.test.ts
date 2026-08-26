@@ -208,6 +208,35 @@ test("answers from completed confirmation state instead of re-confirming", () =>
   assert.match(decision?.instruction ?? "", /already completed/i);
 });
 
+test("allows a new appointment lookup after completed confirmation", () => {
+  const original = {
+    intent: "CONFIRM_APPOINTMENT",
+    toolRequest: {
+      name: "GET_NEXT_APPOINTMENT",
+      arguments: {
+        firstName: "Nancy",
+        lastName: "Jones",
+        dob: "2000-04-01"
+      }
+    }
+  };
+
+  const decision = applyWorkflowTurnPolicies(session({
+    workflowState: {
+      contractVersion: 1,
+      workflow: "CONFIRM_APPOINTMENT",
+      state: "COMPLETED",
+      allowedActions: [],
+      context: {
+        selectedAppointmentId: 193,
+        alreadyConfirmed: false
+      }
+    }
+  }), original);
+
+  assert.equal(decision, undefined);
+});
+
 test("prefers confirmation flow over fallback when a selected appointment exists", () => {
   const decision = applyWorkflowTurnPolicies(session({
     pendingAppointmentId: 503,

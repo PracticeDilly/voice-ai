@@ -198,6 +198,10 @@ function shouldAnswerFromCompletedConfirmation(
     return false;
   }
 
+  if (context.result.toolRequest && context.result.toolRequest.name !== "CONFIRM_APPOINTMENT") {
+    return false;
+  }
+
   return isConfirmIntent(context.result.intent)
     || context.result.toolRequest?.name === "CONFIRM_APPOINTMENT";
 }
