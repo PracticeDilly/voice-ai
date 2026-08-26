@@ -5,13 +5,12 @@ import { AiReceptionistOrchestrator } from "../../src/conversation/aiReceptionis
 import { ModelTurnResult } from "../../src/conversation/modelClient.js";
 import { ToolRequest, ToolResult } from "../../src/backend/springBootClient.js";
 
-test("executes confirmation after policy reprompt returns structured caller approval", async () => {
+test("returns a deterministic confirmation prompt when a selected appointment still needs caller approval", async () => {
   const sessions = new CallSessionStore();
   const orchestrator = new AiReceptionistOrchestrator(sessions);
   const session = buildSession(sessions);
 
   const executedTools: ToolRequest[] = [];
-  let policyRepromptContext: unknown;
 
   (orchestrator as unknown as {
     springBootClient: {
@@ -19,7 +18,6 @@ test("executes confirmation after policy reprompt returns structured caller appr
     };
     modelClient: {
       nextTurn(session: CallSession, callerText: string): Promise<ModelTurnResult>;
-      continueWithPolicyInstruction(session: CallSession, instruction: string, boundaryContext?: unknown): Promise<ModelTurnResult>;
       continueWithToolResult(session: CallSession, toolResult: unknown): Promise<ModelTurnResult>;
     };
     toolExecutor: {
@@ -32,7 +30,6 @@ test("executes confirmation after policy reprompt returns structured caller appr
   (orchestrator as unknown as {
     modelClient: {
       nextTurn(session: CallSession, callerText: string): Promise<ModelTurnResult>;
-      continueWithPolicyInstruction(session: CallSession, instruction: string, boundaryContext?: unknown): Promise<ModelTurnResult>;
       continueWithToolResult(session: CallSession, toolResult: unknown): Promise<ModelTurnResult>;
     };
   }).modelClient = {
@@ -42,21 +39,8 @@ test("executes confirmation after policy reprompt returns structured caller appr
         reply: "I can help with that."
       };
     },
-    async continueWithPolicyInstruction(_session, _instruction, boundaryContext) {
-      policyRepromptContext = boundaryContext;
-      return {
-        intent: "CONFIRM_APPOINTMENT",
-        collectedFields: {
-          callerConfirmedSelectedAppointment: true
-        },
-        reply: "I have your confirmation."
-      };
-    },
     async continueWithToolResult() {
-      return {
-        intent: "CONFIRM_APPOINTMENT",
-        reply: "Your appointment on August 27, 2026, at 8:20 AM with Dr. David Johnson is confirmed."
-      };
+      throw new Error("tool result follow-up should not be needed before caller approval");
     }
   };
 
@@ -76,16 +60,10 @@ test("executes confirmation after policy reprompt returns structured caller appr
 
   const outcome = await orchestrator.handleCallerText(session, "Please confirm it.");
 
-  assert.equal(policyRepromptContext && typeof policyRepromptContext === "object" && "type" in (policyRepromptContext as Record<string, unknown>)
-    ? (policyRepromptContext as { type?: unknown }).type
-    : undefined, "CONFIRM_SELECTED_APPOINTMENT");
-  assert.equal(executedTools.length, 1);
-  assert.equal(executedTools[0]?.name, "CONFIRM_APPOINTMENT");
-  assert.equal(executedTools[0]?.arguments.appointmentId, 503);
-  assert.equal(executedTools[0]?.arguments.callerConfirmedSelectedAppointment, true);
-  assert.equal(session.pendingActions.CONFIRM_APPOINTMENT, undefined);
-  assert.equal(session.collectedFields.callerConfirmedSelectedAppointment, undefined);
-  assert.match(outcome.reply, /is confirmed/i);
+  assert.equal(executedTools.length, 0);
+  assert.equal(session.pendingActions.CONFIRM_APPOINTMENT?.appointmentId, 503);
+  assert.match(outcome.reply, /should i go ahead and confirm it/i);
+  assert.match(outcome.reply, /August 27, 2026/i);
 });
 
 test("executes confirmation in one turn when caller names the appointment and asks to confirm it", async () => {
@@ -105,7 +83,6 @@ test("executes confirmation in one turn when caller names the appointment and as
     };
     modelClient: {
       nextTurn(session: CallSession, callerText: string): Promise<ModelTurnResult>;
-      continueWithPolicyInstruction(session: CallSession, instruction: string, boundaryContext?: unknown): Promise<ModelTurnResult>;
       continueWithToolResult(session: CallSession, toolResult: unknown): Promise<ModelTurnResult>;
     };
     toolExecutor: {
@@ -118,7 +95,6 @@ test("executes confirmation in one turn when caller names the appointment and as
   (orchestrator as unknown as {
     modelClient: {
       nextTurn(session: CallSession, callerText: string): Promise<ModelTurnResult>;
-      continueWithPolicyInstruction(session: CallSession, instruction: string, boundaryContext?: unknown): Promise<ModelTurnResult>;
       continueWithToolResult(session: CallSession, toolResult: unknown): Promise<ModelTurnResult>;
     };
   }).modelClient = {
@@ -126,7 +102,7 @@ test("executes confirmation in one turn when caller names the appointment and as
       return {
         intent: "CONFIRM_APPOINTMENT",
         collectedFields: {
-          selectedAppointmentDate: "August 26, 2026 at 10:00 AM",
+          selectedAppointmentId: 502,
           callerConfirmedSelectedAppointment: true
         },
         toolRequest: {
@@ -139,9 +115,6 @@ test("executes confirmation in one turn when caller names the appointment and as
         },
         reply: "I can help confirm that appointment."
       };
-    },
-    async continueWithPolicyInstruction() {
-      throw new Error("policy reprompt should not be needed for explicit same-turn confirmation");
     },
     async continueWithToolResult(_session, toolResult) {
       const toolName = typeof toolResult === "object" && toolResult && "name" in (toolResult as Record<string, unknown>)
@@ -202,9 +175,194 @@ test("executes confirmation in one turn when caller names the appointment and as
   assert.equal(executedTools[1]?.arguments.appointmentId, 502);
   assert.equal(executedTools[1]?.arguments.callerConfirmedSelectedAppointment, true);
   assert.equal(session.pendingActions.CONFIRM_APPOINTMENT, undefined);
-  assert.equal(session.collectedFields.selectedAppointmentDate, undefined);
+  assert.equal(session.collectedFields.selectedAppointmentId, undefined);
   assert.equal(session.collectedFields.callerConfirmedSelectedAppointment, undefined);
   assert.match(outcome.reply, /August 26, 2026, at 10:00 AM/i);
+});
+
+test("executes confirmation when caller says confirm on August 27 after hearing multiple appointments", async () => {
+  const sessions = new CallSessionStore();
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  const session = sessions.create({
+    callSid: "CA-august-27",
+    officeCode: "MSHNN"
+  });
+  session.currentIntent = "CONFIRM_APPOINTMENT";
+  session.collectedFields.firstName = "Nancy";
+  session.collectedFields.dob = "2000-04-01";
+  session.lastToolResults.GET_NEXT_APPOINTMENT = {
+    name: "GET_NEXT_APPOINTMENT",
+    ok: true,
+    data: {
+      upcomingAppointments: [
+        {
+          appointmentId: 502,
+          appointmentDate: "10:00 AM on Wednesday, August 26, 2026",
+          doctorName: "Dr. David Johnson",
+          alreadyConfirmed: false
+        },
+        {
+          appointmentId: 503,
+          appointmentDate: "8:20 AM on Thursday, August 27, 2026",
+          doctorName: "Dr. David Johnson",
+          alreadyConfirmed: false
+        }
+      ]
+    }
+  };
+  session.transcript.push({
+    speaker: "assistant",
+    text: "Neither appointment is confirmed yet. Would you like to confirm one of these appointments now? If so, please tell me which one.",
+    at: "2026-08-25T10:25:52.007Z"
+  });
+
+  const executedTools: ToolRequest[] = [];
+
+  (orchestrator as unknown as {
+    springBootClient: {
+      saveTranscriptTurn(input: unknown): Promise<void>;
+    };
+    modelClient: {
+      nextTurn(session: CallSession, callerText: string): Promise<ModelTurnResult>;
+      continueWithToolResult(session: CallSession, toolResult: unknown): Promise<ModelTurnResult>;
+    };
+    toolExecutor: {
+      execute(session: CallSession, tool: ToolRequest): Promise<ToolResult>;
+    };
+  }).springBootClient = {
+    async saveTranscriptTurn() {}
+  };
+
+  (orchestrator as unknown as {
+    modelClient: {
+      nextTurn(session: CallSession, callerText: string): Promise<ModelTurnResult>;
+      continueWithToolResult(session: CallSession, toolResult: unknown): Promise<ModelTurnResult>;
+    };
+  }).modelClient = {
+    async nextTurn() {
+      return {
+        intent: "CONFIRM_APPOINTMENT",
+        collectedFields: {
+          selectedAppointmentId: 503,
+          callerConfirmedSelectedAppointment: true
+        },
+        toolRequest: {
+          name: "CONFIRM_APPOINTMENT",
+          arguments: {}
+        },
+        reply: "I can help with that."
+      };
+    },
+    async continueWithToolResult() {
+      return {
+        intent: "CONFIRM_APPOINTMENT",
+        reply: "Your appointment on August 27, 2026, at 8:20 AM with Dr. David Johnson is confirmed."
+      };
+    }
+  };
+
+  (orchestrator as unknown as {
+    toolExecutor: {
+      execute(session: CallSession, tool: ToolRequest): Promise<ToolResult>;
+    };
+  }).toolExecutor = {
+    async execute(_session, tool) {
+      executedTools.push(tool);
+      return {
+        name: tool.name,
+        ok: true
+      };
+    }
+  };
+
+  const outcome = await orchestrator.handleCallerText(session, "Can you book can you confirm on August 27?");
+
+  assert.deepEqual(executedTools.map((tool) => tool.name), ["CONFIRM_APPOINTMENT"]);
+  assert.equal(executedTools[0]?.arguments.appointmentId, 503);
+  assert.equal(executedTools[0]?.arguments.callerConfirmedSelectedAppointment, true);
+  assert.match(outcome.reply, /August 27, 2026, at 8:20 AM/i);
+});
+
+test("returns a bounded choice prompt when confirmation is still ambiguous", async () => {
+  const sessions = new CallSessionStore();
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  const session = sessions.create({
+    callSid: "CA-reprompt-guard",
+    officeCode: "MSHNN"
+  });
+  session.currentIntent = "CONFIRM_APPOINTMENT";
+  session.lastToolResults.GET_NEXT_APPOINTMENT = {
+    name: "GET_NEXT_APPOINTMENT",
+    ok: true,
+    data: {
+      upcomingAppointments: [
+        {
+          appointmentId: 502,
+          appointmentDate: "10:00 AM on Wednesday, August 26, 2026",
+          doctorName: "Dr. David Johnson",
+          alreadyConfirmed: false
+        },
+        {
+          appointmentId: 503,
+          appointmentDate: "8:20 AM on Thursday, August 27, 2026",
+          doctorName: "Dr. David Johnson",
+          alreadyConfirmed: false
+        }
+      ]
+    }
+  };
+
+  (orchestrator as unknown as {
+    springBootClient: {
+      saveTranscriptTurn(input: unknown): Promise<void>;
+    };
+    modelClient: {
+      nextTurn(session: CallSession, callerText: string): Promise<ModelTurnResult>;
+      continueWithToolResult(session: CallSession, toolResult: unknown): Promise<ModelTurnResult>;
+    };
+    toolExecutor: {
+      execute(session: CallSession, tool: ToolRequest): Promise<ToolResult>;
+    };
+  }).springBootClient = {
+    async saveTranscriptTurn() {}
+  };
+
+  (orchestrator as unknown as {
+    modelClient: {
+      nextTurn(session: CallSession, callerText: string): Promise<ModelTurnResult>;
+      continueWithToolResult(session: CallSession, toolResult: unknown): Promise<ModelTurnResult>;
+    };
+  }).modelClient = {
+    async nextTurn() {
+      return {
+        intent: "CONFIRM_APPOINTMENT",
+        toolRequest: {
+          name: "CONFIRM_APPOINTMENT",
+          arguments: {}
+        },
+        reply: "I can help with that."
+      };
+    },
+    async continueWithToolResult() {
+      throw new Error("tool execution should not happen for unresolved appointment selection");
+    }
+  };
+
+  (orchestrator as unknown as {
+    toolExecutor: {
+      execute(session: CallSession, tool: ToolRequest): Promise<ToolResult>;
+    };
+  }).toolExecutor = {
+    async execute() {
+      throw new Error("tool execution should not happen for unresolved appointment selection");
+    }
+  };
+
+  const outcome = await orchestrator.handleCallerText(session, "Okay. I want to confirm appointment.");
+
+  assert.match(outcome.reply, /multiple appointments available to confirm/i);
+  assert.match(outcome.reply, /August 26, 2026/i);
+  assert.match(outcome.reply, /August 27, 2026/i);
 });
 
 function buildSession(store: CallSessionStore): CallSession {

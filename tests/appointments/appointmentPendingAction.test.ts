@@ -89,10 +89,10 @@ test("selects a different appointment from stored confirmable options before con
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT.status, "AWAITING_CALLER_CONFIRMATION");
 });
 
-test("selects a confirmable appointment by structured appointment date", () => {
+test("selects a confirmable appointment by structured appointment id in collected fields", () => {
   const callSession = session();
   callSession.currentIntent = "CONFIRM_APPOINTMENT";
-  callSession.collectedFields.selectedAppointmentDate = "9:20 AM, Fri, Aug 21 2026";
+  callSession.collectedFields.selectedAppointmentId = 502;
   callSession.appointmentSelections.CONFIRM_APPOINTMENT = {
     createdAt: "2026-08-17T00:00:00.000Z",
     options: [
@@ -107,10 +107,10 @@ test("selects a confirmable appointment by structured appointment date", () => {
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "READY_TO_EXECUTE");
 });
 
-test("selects a confirmable appointment by date-only phrase", () => {
+test("selects a confirmable appointment by structured selected appointment id", () => {
   const callSession = session();
   callSession.currentIntent = "CONFIRM_APPOINTMENT";
-  callSession.collectedFields.selectedAppointmentDate = "August 24, 2026";
+  callSession.collectedFields.selectedAppointmentId = 502;
   callSession.appointmentSelections.CONFIRM_APPOINTMENT = {
     createdAt: "2026-08-17T00:00:00.000Z",
     options: [
@@ -128,7 +128,7 @@ test("selects a confirmable appointment by date-only phrase", () => {
 test("promotes selected appointment after lookup creates fresh options for the same confirm turn", () => {
   const callSession = session();
   callSession.currentIntent = "CONFIRM_APPOINTMENT";
-  callSession.collectedFields.selectedAppointmentDate = "August 26, 2026";
+  callSession.collectedFields.selectedAppointmentId = 501;
 
   syncConfirmAppointmentFromLookup(callSession, "GET_NEXT_APPOINTMENT", {
     name: "GET_NEXT_APPOINTMENT",
@@ -203,7 +203,7 @@ test("promotes single looked-up appointment when caller already said to confirm 
 test("promotes selected appointment from multiple options when caller names it and says to confirm it", () => {
   const callSession = session();
   callSession.currentIntent = "CONFIRM_APPOINTMENT";
-  callSession.collectedFields.selectedAppointmentDate = "August 26, 2026 at 10:00 AM";
+  callSession.collectedFields.selectedAppointmentId = 501;
   callSession.collectedFields.callerConfirmedSelectedAppointment = true;
 
   syncConfirmAppointmentFromLookup(callSession, "GET_NEXT_APPOINTMENT", {
