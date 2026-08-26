@@ -57,13 +57,14 @@ function applyConfirmationExecutionBoundary(
     };
   }
 
-  if (context.pendingConfirmationStatus === "READY_TO_EXECUTE" && result.toolRequest?.name !== "CONFIRM_APPOINTMENT") {
+  if (context.pendingConfirmationStatus === "READY_TO_EXECUTE") {
     return {
       overrideResult: {
         ...result,
         toolRequest: {
           name: "CONFIRM_APPOINTMENT",
           arguments: {
+            ...result.toolRequest?.arguments,
             appointmentId: session.pendingActions.CONFIRM_APPOINTMENT?.appointmentId
           }
         }
