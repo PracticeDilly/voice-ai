@@ -1,4 +1,5 @@
 import { AppointmentSelectionOption, CallSession } from "../../calls/callSession.js";
+import type { ModelTurnResult } from "../../conversation/modelClient.js";
 import { ToolResult } from "../../backend/springBootClient.js";
 import { normalizeAppointmentId } from "../../appointments/appointmentId.js";
 
@@ -29,7 +30,8 @@ export function hydrateConfirmAppointmentOptionsFromLastLookup(session: CallSess
 
 export function selectedConfirmAppointmentOption(
   session: CallSession,
-  toolArguments?: Record<string, unknown>
+  toolArguments?: Record<string, unknown>,
+  result?: ModelTurnResult
 ): AppointmentSelectionOption | undefined {
   const options = session.appointmentSelections.CONFIRM_APPOINTMENT?.options ?? [];
   if (options.length === 0) {
@@ -38,11 +40,30 @@ export function selectedConfirmAppointmentOption(
 
   const requestedId = normalizeAppointmentId(
     toolArguments?.appointmentId
+      ?? toolArguments?.selectedAppointmentId
       ?? session.collectedFields.selectedAppointmentId
       ?? session.collectedFields.appointmentId
+      ?? selectedAppointmentReferenceValue(result, "appointmentId")
+      ?? selectedAppointmentReferenceValue(result, "id")
   );
   if (requestedId) {
-    return options.find((option) => normalizeAppointmentId(option.appointmentId) === requestedId);
+    const optionById = options.find((option) => normalizeAppointmentId(option.appointmentId) === requestedId);
+    if (optionById) {
+      return optionById;
+    }
+  }
+
+  const appointmentReference = [
+    toolArguments?.appointmentDate,
+    toolArguments?.appointmentTime,
+    session.collectedFields.selectedAppointmentDate,
+    session.collectedFields.appointmentDate,
+    selectedAppointmentReferenceValue(result, "appointmentDate"),
+    selectedAppointmentReferenceValue(result, "date"),
+    selectedAppointmentReferenceValue(result, "time")
+  ].filter(isMeaningfulString);
+  if (appointmentReference.length > 0) {
+    return options.find((option) => appointmentReferenceMatchesOption(appointmentReference, option));
   }
 
   return undefined;
@@ -127,4 +148,36 @@ function firstArray(...values: unknown[]): unknown[] {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function selectedAppointmentReferenceValue(result: ModelTurnResult | undefined, key: string): unknown {
+  return result?.callerAction?.authorization?.selectedAppointmentReference?.[key];
+}
+
+function appointmentReferenceMatchesOption(
+  references: string[],
+  option: AppointmentSelectionOption
+): boolean {
+  const appointmentDate = normalizeText(option.appointmentDate);
+  if (!appointmentDate) {
+    return false;
+  }
+
+  return references.some((reference) => {
+    const normalizedReference = normalizeText(reference);
+    return !!normalizedReference
+      && (appointmentDate.includes(normalizedReference) || normalizedReference.includes(appointmentDate));
+  });
+}
+
+function normalizeText(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function isMeaningfulString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }

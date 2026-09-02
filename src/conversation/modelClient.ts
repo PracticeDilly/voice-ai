@@ -106,6 +106,8 @@ export class ModelClient {
           })
         }
       ]
+    }, {
+      timeout: config.AI_MODEL_TIMEOUT_MS
     });
 
     const content = response.choices[0]?.message?.content ?? "{}";
@@ -146,6 +148,8 @@ export class ModelClient {
           content: JSON.stringify(payload)
         }
       ]
+    }, {
+      timeout: config.AI_MODEL_TIMEOUT_MS
     });
 
     const content = response.choices[0]?.message?.content ?? "{}";

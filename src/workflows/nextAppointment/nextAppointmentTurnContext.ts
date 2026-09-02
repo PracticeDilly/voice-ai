@@ -36,6 +36,8 @@ export function createNextAppointmentTurnContext(
 function isLookupIntent(result: ModelTurnResult): boolean {
   return normalized(result.intent) === "GET_NEXT_APPOINTMENT"
     || normalized(result.intent) === "NEXT_APPOINTMENT"
+    || result.callerAction?.requestedAction === "LOOKUP_APPOINTMENTS"
+    || result.callerAction?.workflowIntent === "NEXT_APPOINTMENT"
     || result.toolRequest?.name === "GET_NEXT_APPOINTMENT";
 }
 

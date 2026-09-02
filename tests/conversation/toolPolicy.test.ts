@@ -157,6 +157,37 @@ test("does not infer appointment lookup from reply text alone", () => {
   assert.equal(result, original);
 });
 
+test("forces fresh appointment lookup when caller asks for appointment list after confirmation", () => {
+  const decision = applyWorkflowTurnPolicies(session({
+    collectedFields: {
+      firstName: "Nancy",
+      dob: "2000-04-01"
+    },
+    lastToolResults: {
+      CONFIRM_APPOINTMENT: { ok: true }
+    }
+  }), {
+    intent: "CONFIRM_APPOINTMENT",
+    callerAction: {
+      speechAct: "QUESTION",
+      workflowIntent: "NEXT_APPOINTMENT",
+      requestedAction: "LOOKUP_APPOINTMENTS",
+      authorization: {
+        stateChangingAction: null,
+        isExplicit: false
+      }
+    },
+    reply: "The September 4 appointment is not confirmed."
+  });
+  const result = decision?.overrideResult;
+
+  assert.equal(result?.toolRequest?.name, "GET_NEXT_APPOINTMENT");
+  assert.deepEqual(result?.toolRequest?.arguments, {
+    firstName: "Nancy",
+    dob: "2000-04-01"
+  });
+});
+
 test("prefers confirmation execution over fallback when confirmation is ready", () => {
   const decision = applyWorkflowTurnPolicies(session({
     pendingAppointmentId: 502,

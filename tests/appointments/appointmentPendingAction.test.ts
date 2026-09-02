@@ -125,6 +125,47 @@ test("selects a confirmable appointment by structured selected appointment id", 
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "AWAITING_CALLER_CONFIRMATION");
 });
 
+test("replaces stale pending appointment using structured selected appointment date", () => {
+  const callSession = session();
+  callSession.currentIntent = "CONFIRM_APPOINTMENT";
+  callSession.pendingActions.CONFIRM_APPOINTMENT = {
+    appointmentId: 501,
+    status: "READY_TO_EXECUTE",
+    createdAt: "2026-08-17T00:00:00.000Z",
+    promptedAt: "2026-08-17T00:01:00.000Z"
+  };
+  callSession.collectedFields.selectedAppointmentDate = "September 4";
+  callSession.appointmentSelections.CONFIRM_APPOINTMENT = {
+    createdAt: "2026-08-17T00:00:00.000Z",
+    options: [
+      option(501, "7:40 AM on Thursday, September 3, 2026"),
+      option(502, "9:40 AM on Friday, September 4, 2026")
+    ]
+  };
+
+  promoteConfirmAppointmentPendingAction(callSession, {
+    callerAction: {
+      speechAct: "AUTHORIZATION" as const,
+      workflowIntent: "CONFIRM_APPOINTMENT" as const,
+      requestedAction: "CONFIRM_SELECTED_APPOINTMENT" as const,
+      authorization: {
+        stateChangingAction: "CONFIRM_APPOINTMENT" as const,
+        isExplicit: true
+      }
+    },
+    toolRequest: {
+      name: "CONFIRM_APPOINTMENT",
+      arguments: {
+        appointmentId: 999
+      }
+    }
+  });
+
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.appointmentId, 502);
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "AWAITING_CALLER_CONFIRMATION");
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.promptedAt, undefined);
+});
+
 test("promotes selected appointment after lookup creates fresh options for the same confirm turn", () => {
   const callSession = session();
   callSession.currentIntent = "CONFIRM_APPOINTMENT";

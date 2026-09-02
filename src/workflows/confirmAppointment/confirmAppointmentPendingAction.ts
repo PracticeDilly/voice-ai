@@ -46,7 +46,7 @@ export function hydrateConfirmAppointmentSelections(session: CallSession): void 
 }
 
 export function promoteConfirmAppointmentPendingAction(session: CallSession, result?: ModelTurnResult): void {
-  syncSelectedConfirmAppointment(session, result?.toolRequest);
+  syncSelectedConfirmAppointment(session, modelResultToolRequest(result), result);
 
   const pending = session.pendingActions.CONFIRM_APPOINTMENT;
   if (!pending || !pending.promptedAt || !callerAuthorizedSelectedAppointment(result)) {
@@ -131,12 +131,12 @@ export function prepareConfirmAppointmentTool(session: CallSession, tool: ToolRe
   };
 }
 
-function syncSelectedConfirmAppointment(session: CallSession, tool: ToolRequest | undefined): boolean {
+function syncSelectedConfirmAppointment(session: CallSession, tool: ToolRequest | undefined, result?: ModelTurnResult): boolean {
   if (!isConfirmIntent(session.currentIntent)) {
     return false;
   }
 
-  const option = selectedConfirmAppointmentOption(session, tool?.arguments);
+  const option = selectedConfirmAppointmentOption(session, tool?.arguments, result);
   if (!option) {
     return false;
   }
@@ -157,6 +157,21 @@ function syncSelectedConfirmAppointment(session: CallSession, tool: ToolRequest 
 
 function callerAuthorizedSelectedAppointment(result: ModelTurnResult | undefined): boolean {
   return callerActionExplicitlyAuthorizesConfirmation(result);
+}
+
+function modelResultToolRequest(result: ModelTurnResult | undefined): ToolRequest | undefined {
+  if (result?.toolRequest) {
+    return result.toolRequest;
+  }
+
+  if (!result || !("name" in result) || !("arguments" in result)) {
+    return undefined;
+  }
+
+  const tool = result as unknown as ToolRequest;
+  return typeof tool.name === "string" && !!tool.arguments && typeof tool.arguments === "object"
+    ? tool
+    : undefined;
 }
 
 function isConfirmIntent(intent: string | undefined): boolean {
