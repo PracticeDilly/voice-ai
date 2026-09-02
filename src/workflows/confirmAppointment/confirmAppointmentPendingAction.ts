@@ -44,10 +44,10 @@ export function hydrateConfirmAppointmentSelections(session: CallSession): void 
 }
 
 export function promoteConfirmAppointmentPendingAction(session: CallSession, tool?: ToolRequest): void {
-  const selectedInCurrentTurn = syncSelectedConfirmAppointment(session, tool);
+  syncSelectedConfirmAppointment(session, tool);
 
   const pending = session.pendingActions.CONFIRM_APPOINTMENT;
-  if (!pending || !callerAuthorizedSelectedAppointment(session, selectedInCurrentTurn)) {
+  if (!pending || !callerAuthorizedSelectedAppointment(session)) {
     return;
   }
 
@@ -145,11 +145,9 @@ function syncSelectedConfirmAppointment(session: CallSession, tool: ToolRequest 
 }
 
 function callerAuthorizedSelectedAppointment(
-  session: CallSession,
-  selectedInCurrentTurn: boolean
+  session: CallSession
 ): boolean {
-  return session.collectedFields.callerConfirmedSelectedAppointment === true
-    || selectedInCurrentTurn;
+  return session.collectedFields.callerConfirmedSelectedAppointment === true;
 }
 
 function isConfirmIntent(intent: string | undefined): boolean {
