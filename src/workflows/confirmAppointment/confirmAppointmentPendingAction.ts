@@ -49,11 +49,20 @@ export function promoteConfirmAppointmentPendingAction(session: CallSession, res
   syncSelectedConfirmAppointment(session, result?.toolRequest);
 
   const pending = session.pendingActions.CONFIRM_APPOINTMENT;
-  if (!pending || !callerAuthorizedSelectedAppointment(result)) {
+  if (!pending || !pending.promptedAt || !callerAuthorizedSelectedAppointment(result)) {
     return;
   }
 
   pending.status = "READY_TO_EXECUTE";
+}
+
+export function markConfirmAppointmentPrompted(session: CallSession): void {
+  const pending = session.pendingActions.CONFIRM_APPOINTMENT;
+  if (!pending || pending.promptedAt) {
+    return;
+  }
+
+  pending.promptedAt = new Date().toISOString();
 }
 
 export function consumeConfirmAppointmentPendingAction(

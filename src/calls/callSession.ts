@@ -31,6 +31,7 @@ export interface PendingActions {
     appointmentId: unknown;
     status: PendingActionStatus;
     createdAt: string;
+    promptedAt?: string;
   };
   VERIFY_PATIENT_IDENTITY?: {
     status: "NEEDS_NAME_SPELLING";

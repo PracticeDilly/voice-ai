@@ -11,6 +11,7 @@ import { WorkflowStateView } from "../shared/workflowStateView.js";
 import { ConfirmAppointmentStateView } from "./confirmAppointmentStateView.js";
 import { ConfirmAppointmentToolAdapter } from "./confirmAppointmentToolAdapter.js";
 import { createConfirmAppointmentTurnContext } from "./confirmAppointmentTurnContext.js";
+import { markConfirmAppointmentPrompted } from "./confirmAppointmentPendingAction.js";
 
 const toolAdapter = new ConfirmAppointmentToolAdapter();
 
@@ -100,6 +101,7 @@ function applyConfirmationExecutionBoundary(
   }
 
   if (context.pendingSelection) {
+    markConfirmAppointmentPrompted(session);
     return {
       instruction: "A confirmation execution boundary is active. Continue the confirmation workflow using the provided boundary context. Stay with appointment selection and confirmation unless the caller explicitly asks for staff or the backend requires handoff.",
       repromptContext: {
@@ -164,6 +166,7 @@ function applyConfirmationLookupBoundary(
   }
 
   if (context.pendingSelection) {
+    markConfirmAppointmentPrompted(session);
     return {
       instruction: "A confirmation boundary is active for the selected appointment. Ask the caller only to confirm the selected appointment before any state-changing tool request.",
       repromptContext: {

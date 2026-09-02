@@ -66,7 +66,7 @@ test("returns a deterministic confirmation prompt when a selected appointment st
   assert.match(outcome.reply, /August 27, 2026/i);
 });
 
-test("executes confirmation in one turn when caller names the appointment and asks to confirm it", async () => {
+test("requires workflow confirmation prompt before executing a newly selected appointment", async () => {
   const sessions = new CallSessionStore();
   const orchestrator = new AiReceptionistOrchestrator(sessions);
   const session = sessions.create({
@@ -84,6 +84,7 @@ test("executes confirmation in one turn when caller names the appointment and as
     modelClient: {
       nextTurn(session: CallSession, callerText: string): Promise<ModelTurnResult>;
       continueWithToolResult(session: CallSession, toolResult: unknown): Promise<ModelTurnResult>;
+      continueWithPolicyInstruction(session: CallSession, instruction: string, boundaryContext?: unknown): Promise<ModelTurnResult>;
     };
     toolExecutor: {
       execute(session: CallSession, tool: ToolRequest): Promise<ToolResult>;
@@ -96,6 +97,7 @@ test("executes confirmation in one turn when caller names the appointment and as
     modelClient: {
       nextTurn(session: CallSession, callerText: string): Promise<ModelTurnResult>;
       continueWithToolResult(session: CallSession, toolResult: unknown): Promise<ModelTurnResult>;
+      continueWithPolicyInstruction(session: CallSession, instruction: string, boundaryContext?: unknown): Promise<ModelTurnResult>;
     };
   }).modelClient = {
     async nextTurn() {
@@ -121,13 +123,15 @@ test("executes confirmation in one turn when caller names the appointment and as
       const toolName = typeof toolResult === "object" && toolResult && "name" in (toolResult as Record<string, unknown>)
         ? (toolResult as { name?: unknown }).name
         : undefined;
-      if (toolName === "GET_NEXT_APPOINTMENT") {
-        throw new Error("lookup should flow directly into confirmation before a caller-facing reply");
-      }
-
       return {
         intent: "CONFIRM_APPOINTMENT",
-        reply: "Your appointment on August 26, 2026, at 10:00 AM with Dr. David Johnson is confirmed."
+        reply: `Tool result received from ${String(toolName)}.`
+      };
+    },
+    async continueWithPolicyInstruction() {
+      return {
+        intent: "CONFIRM_APPOINTMENT",
+        reply: "To confirm your appointment on August 26, 2026, at 10:00 AM with Dr. David Johnson, should I go ahead and confirm it for you?"
       };
     }
   };
@@ -172,16 +176,14 @@ test("executes confirmation in one turn when caller names the appointment and as
 
   const outcome = await orchestrator.handleCallerText(session, "August 26 at 10:00 AM, please confirm it.");
 
-  assert.deepEqual(executedTools.map((tool) => tool.name), ["GET_NEXT_APPOINTMENT", "CONFIRM_APPOINTMENT"]);
-  assert.equal(executedTools[1]?.arguments.appointmentId, 502);
-  assert.equal(executedTools[1]?.arguments.callerConfirmedSelectedAppointment, true);
-  assert.equal(session.pendingActions.CONFIRM_APPOINTMENT, undefined);
-  assert.equal(session.collectedFields.selectedAppointmentId, undefined);
-  assert.equal(session.collectedFields.callerConfirmedSelectedAppointment, undefined);
+  assert.deepEqual(executedTools.map((tool) => tool.name), ["GET_NEXT_APPOINTMENT"]);
+  assert.equal(session.pendingActions.CONFIRM_APPOINTMENT?.appointmentId, 502);
+  assert.equal(session.pendingActions.CONFIRM_APPOINTMENT?.status, "AWAITING_CALLER_CONFIRMATION");
+  assert.ok(session.pendingActions.CONFIRM_APPOINTMENT?.promptedAt);
   assert.match(outcome.reply, /August 26, 2026, at 10:00 AM/i);
 });
 
-test("executes confirmation when caller says confirm on August 27 after hearing multiple appointments", async () => {
+test("asks for explicit confirmation after caller selects an appointment from multiple options", async () => {
   const sessions = new CallSessionStore();
   const orchestrator = new AiReceptionistOrchestrator(sessions);
   const session = sessions.create({
@@ -226,6 +228,7 @@ test("executes confirmation when caller says confirm on August 27 after hearing 
     modelClient: {
       nextTurn(session: CallSession, callerText: string): Promise<ModelTurnResult>;
       continueWithToolResult(session: CallSession, toolResult: unknown): Promise<ModelTurnResult>;
+      continueWithPolicyInstruction(session: CallSession, instruction: string, boundaryContext?: unknown): Promise<ModelTurnResult>;
     };
     toolExecutor: {
       execute(session: CallSession, tool: ToolRequest): Promise<ToolResult>;
@@ -238,6 +241,7 @@ test("executes confirmation when caller says confirm on August 27 after hearing 
     modelClient: {
       nextTurn(session: CallSession, callerText: string): Promise<ModelTurnResult>;
       continueWithToolResult(session: CallSession, toolResult: unknown): Promise<ModelTurnResult>;
+      continueWithPolicyInstruction(session: CallSession, instruction: string, boundaryContext?: unknown): Promise<ModelTurnResult>;
     };
   }).modelClient = {
     async nextTurn() {
@@ -256,9 +260,12 @@ test("executes confirmation when caller says confirm on August 27 after hearing 
       };
     },
     async continueWithToolResult() {
+      throw new Error("confirmation should not execute before the workflow confirmation prompt");
+    },
+    async continueWithPolicyInstruction() {
       return {
         intent: "CONFIRM_APPOINTMENT",
-        reply: "Your appointment on August 27, 2026, at 8:20 AM with Dr. David Johnson is confirmed."
+        reply: "To confirm your appointment on August 27, 2026, at 8:20 AM with Dr. David Johnson, should I go ahead and confirm it for you?"
       };
     }
   };
@@ -279,9 +286,10 @@ test("executes confirmation when caller says confirm on August 27 after hearing 
 
   const outcome = await orchestrator.handleCallerText(session, "Can you book can you confirm on August 27?");
 
-  assert.deepEqual(executedTools.map((tool) => tool.name), ["CONFIRM_APPOINTMENT"]);
-  assert.equal(executedTools[0]?.arguments.appointmentId, 503);
-  assert.equal(executedTools[0]?.arguments.callerConfirmedSelectedAppointment, true);
+  assert.deepEqual(executedTools.map((tool) => tool.name), []);
+  assert.equal(session.pendingActions.CONFIRM_APPOINTMENT?.appointmentId, 503);
+  assert.equal(session.pendingActions.CONFIRM_APPOINTMENT?.status, "AWAITING_CALLER_CONFIRMATION");
+  assert.ok(session.pendingActions.CONFIRM_APPOINTMENT?.promptedAt);
   assert.match(outcome.reply, /August 27, 2026, at 8:20 AM/i);
 });
 

@@ -187,7 +187,8 @@ test("promotes pending confirmation after structured caller confirmation", () =>
   callSession.pendingActions.CONFIRM_APPOINTMENT = {
     appointmentId: 501,
     status: "AWAITING_CALLER_CONFIRMATION",
-    createdAt: "2026-08-17T00:00:00.000Z"
+    createdAt: "2026-08-17T00:00:00.000Z",
+    promptedAt: "2026-08-17T00:01:00.000Z"
   };
 
   promoteConfirmAppointmentPendingAction(callSession, explicitConfirmation());
@@ -195,7 +196,7 @@ test("promotes pending confirmation after structured caller confirmation", () =>
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT.status, "READY_TO_EXECUTE");
 });
 
-test("promotes single looked-up appointment when caller already said to confirm it", () => {
+test("keeps single looked-up appointment awaiting confirmation until workflow has prompted", () => {
   const callSession = session();
   callSession.currentIntent = "CONFIRM_APPOINTMENT";
 
@@ -213,10 +214,10 @@ test("promotes single looked-up appointment when caller already said to confirm 
   promoteConfirmAppointmentPendingAction(callSession, explicitConfirmation());
 
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.appointmentId, 501);
-  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "READY_TO_EXECUTE");
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "AWAITING_CALLER_CONFIRMATION");
 });
 
-test("promotes selected appointment from multiple options when caller names it and says to confirm it", () => {
+test("keeps selected appointment awaiting confirmation until workflow has prompted", () => {
   const callSession = session();
   callSession.currentIntent = "CONFIRM_APPOINTMENT";
   callSession.collectedFields.selectedAppointmentId = 501;
@@ -235,7 +236,7 @@ test("promotes selected appointment from multiple options when caller names it a
   promoteConfirmAppointmentPendingAction(callSession, explicitConfirmation());
 
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.appointmentId, 501);
-  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "READY_TO_EXECUTE");
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "AWAITING_CALLER_CONFIRMATION");
 });
 
 test("does not promote pending confirmation from tool arguments alone", () => {
