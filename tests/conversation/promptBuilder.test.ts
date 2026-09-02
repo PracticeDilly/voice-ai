@@ -8,7 +8,8 @@ test("builds a compact workflow-oriented prompt", () => {
 
   assert.match(prompt, /Workflow protocol:/);
   assert.match(prompt, /Tool contracts:/);
-  assert.match(prompt, /CREATE_HANDOFF_REQUEST consentSource values/);
+  assert.match(prompt, /Use TRANSFER_TO_STAFF for every staff handoff/);
+  assert.doesNotMatch(prompt, /CREATE_HANDOFF_REQUEST/);
   assert.doesNotMatch(prompt, /GETevant|reldo/);
   assert.ok(prompt.length < 5500, `prompt is too long: ${prompt.length}`);
 });

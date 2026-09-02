@@ -72,7 +72,7 @@ export const nextAppointmentWorkflow: ConversationWorkflow = {
 
     if (shouldAskCallerToSpellName(context)) {
       return {
-        instruction: "The previous patient lookup did not find a match. Stay in the active next-appointment identity-recovery flow. Ask the caller to spell the name that may have been heard incorrectly before offering staff follow-up.",
+        instruction: "The previous patient lookup did not find a match. Stay in the active next-appointment identity-recovery flow. Ask the caller to spell the name that may have been heard incorrectly before transferring to staff.",
         repromptContext: {
           type: "ASK_CALLER_TO_SPELL_NAME",
           identity: {
@@ -98,7 +98,7 @@ export const nextAppointmentWorkflow: ConversationWorkflow = {
         createdAt: new Date().toISOString()
       };
       return {
-        instruction: "The patient lookup did not find a match. Stay in the active appointment identity-verification flow. Ask the caller to spell the name that may have been heard incorrectly before offering staff follow-up.",
+        instruction: "The patient lookup did not find a match. Stay in the active appointment identity-verification flow. Ask the caller to spell the name that may have been heard incorrectly before transferring to staff.",
         repromptContext: {
           type: "ASK_CALLER_TO_SPELL_NAME",
           identity: {
@@ -123,6 +123,7 @@ function shouldRefreshLookup(context: ReturnType<typeof createNextAppointmentTur
 
 function shouldRetryLookupInsteadOfHandoff(context: ReturnType<typeof createNextAppointmentTurnContext>): boolean {
   return context.requestedHandoff
+    && !context.callerRequestedStaffTransfer
     && context.stateView.isPatientNotFound()
     && context.stateView.allowsLookup()
     && Object.keys(context.updatedIdentityFields).length > 0;
@@ -147,6 +148,7 @@ function shouldContinueIdentityVerification(context: ReturnType<typeof createNex
 
 function shouldAskCallerToSpellName(context: ReturnType<typeof createNextAppointmentTurnContext>): boolean {
   return context.requestedHandoff
+    && !context.callerRequestedStaffTransfer
     && context.stateView.isPatientNotFound()
     && context.stateView.allowsLookup()
     && Object.keys(context.updatedIdentityFields).length === 0

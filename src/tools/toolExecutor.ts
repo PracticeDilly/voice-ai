@@ -1,6 +1,5 @@
 import { SpringBootClient, ToolRequest, ToolResult } from "../backend/springBootClient.js";
 import { CallSession } from "../calls/callSession.js";
-import { validateHandoffRequest } from "../handoff/handoffRequest.js";
 import { ConfirmAppointmentToolAdapter } from "../workflows/confirmAppointment/confirmAppointmentToolAdapter.js";
 import { prepareWorkflowTool, validateWorkflowTool } from "../workflows/shared/workflowRegistry.js";
 
@@ -9,7 +8,6 @@ const allowedTools = new Set([
   "GET_NEXT_APPOINTMENT",
   "CONFIRM_APPOINTMENT",
   "GET_INSURANCE_POLICY",
-  "CREATE_HANDOFF_REQUEST",
   "TRANSFER_TO_STAFF",
   "SAVE_CALL_SUMMARY"
 ]);
@@ -39,15 +37,6 @@ export class ToolExecutor {
         name: tool.name,
         ok: false,
         error: policyError
-      };
-    }
-
-    const handoffPolicyError = validateHandoffRequest(session, preparedAppointmentTool);
-    if (handoffPolicyError) {
-      return {
-        name: tool.name,
-        ok: false,
-        error: handoffPolicyError
       };
     }
 

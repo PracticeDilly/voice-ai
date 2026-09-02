@@ -1,5 +1,6 @@
 import { CallSession } from "../../calls/callSession.js";
 import { ModelTurnResult } from "../../conversation/modelClient.js";
+import { callerActionRequestsStaffTransfer } from "../shared/callerActionDecision.js";
 import { WorkflowStateView } from "../shared/workflowStateView.js";
 import { NextAppointmentStateView } from "./nextAppointmentStateView.js";
 
@@ -9,6 +10,7 @@ export interface NextAppointmentTurnContext {
   stateView: NextAppointmentStateView;
   requestedLookup: boolean;
   requestedHandoff: boolean;
+  callerRequestedStaffTransfer: boolean;
   hasFreshLookup: boolean;
   hasSuccessfulConfirmation: boolean;
   updatedIdentityFields: Record<string, unknown>;
@@ -23,7 +25,8 @@ export function createNextAppointmentTurnContext(
     result,
     stateView: new NextAppointmentStateView(new WorkflowStateView(session.workflowState)),
     requestedLookup: isLookupIntent(result),
-    requestedHandoff: result.toolRequest?.name === "CREATE_HANDOFF_REQUEST",
+    requestedHandoff: result.toolRequest?.name === "TRANSFER_TO_STAFF",
+    callerRequestedStaffTransfer: callerActionRequestsStaffTransfer(result),
     hasFreshLookup: isSuccessfulToolResult(session.lastToolResults.GET_NEXT_APPOINTMENT),
     hasSuccessfulConfirmation: isSuccessfulToolResult(session.lastToolResults.CONFIRM_APPOINTMENT),
     updatedIdentityFields: meaningfulIdentityFields(result.collectedFields ?? {})

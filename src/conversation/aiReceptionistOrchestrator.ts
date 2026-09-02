@@ -7,10 +7,6 @@ import {
   promoteConfirmAppointmentPendingAction,
   syncConfirmAppointmentFromLookup
 } from "../workflows/confirmAppointment/confirmAppointmentPendingAction.js";
-import {
-  consumePendingHandoffRequest,
-  syncPendingHandoffRequest
-} from "../handoff/handoffPendingAction.js";
 import { ToolExecutor } from "../tools/toolExecutor.js";
 import { logger } from "../utils/logger.js";
 import { applyWorkflowToolResultPolicies, applyWorkflowTurnPolicies } from "../workflows/shared/workflowRegistry.js";
@@ -90,7 +86,7 @@ export class AiReceptionistOrchestrator {
       };
     }
     hydrateConfirmAppointmentSelections(session);
-    promoteConfirmAppointmentPendingAction(session);
+    promoteConfirmAppointmentPendingAction(session, firstResult);
 
     const finalResult = await this.resolvePolicyAwareModelResult(session, firstResult);
     if (firstResult.toolRequest
@@ -183,8 +179,7 @@ export class AiReceptionistOrchestrator {
     if (!result.toolRequest) {
       return result;
     }
-    promoteConfirmAppointmentPendingAction(session, result.toolRequest);
-    syncPendingHandoffRequest(session, result.toolRequest);
+    promoteConfirmAppointmentPendingAction(session, result);
 
     const toolStartedAt = Date.now();
     logger.info("AI tool request started", {
@@ -197,10 +192,9 @@ export class AiReceptionistOrchestrator {
     session.lastToolResults[result.toolRequest.name] = toolResult;
     session.workflowState = extractWorkflowEnvelope(toolResult) ?? session.workflowState;
     syncConfirmAppointmentFromLookup(session, result.toolRequest.name, toolResult, session.currentIntent);
-    promoteConfirmAppointmentPendingAction(session);
+    promoteConfirmAppointmentPendingAction(session, result);
     invalidateAppointmentLookupCacheAfterConfirmation(session, result.toolRequest.name, toolResult);
     consumeConfirmAppointmentPendingAction(session, result.toolRequest.name, toolResult);
-    consumePendingHandoffRequest(session, result.toolRequest.name, toolResult);
     logger.info("AI workflow state updated from tool result", {
       callSid: session.callSid,
       officeCode: session.officeCode,
@@ -289,7 +283,7 @@ export class AiReceptionistOrchestrator {
     }
 
     hydrateConfirmAppointmentSelections(session);
-    promoteConfirmAppointmentPendingAction(session, repromptResult.toolRequest);
+    promoteConfirmAppointmentPendingAction(session, repromptResult);
 
     if (!repromptResult.toolRequest && session.pendingActions.CONFIRM_APPOINTMENT?.status !== "READY_TO_EXECUTE") {
       return repromptResult;
@@ -322,7 +316,7 @@ export class AiReceptionistOrchestrator {
       return {
         name: toolRequest.name,
         ok: false,
-        error: "The office system is unavailable for that request right now. Offer to send a message to the office staff."
+        error: "The office system is unavailable for that request right now. Transfer to office staff."
       };
     }
   }

@@ -1,6 +1,8 @@
 import { ToolRequest, ToolResult } from "../../backend/springBootClient.js";
 import { CallSession } from "../../calls/callSession.js";
 import { normalizeAppointmentId } from "../../appointments/appointmentId.js";
+import { ModelTurnResult } from "../../conversation/modelClient.js";
+import { callerActionExplicitlyAuthorizesConfirmation } from "../shared/callerActionDecision.js";
 import {
   hydrateConfirmAppointmentOptionsFromLastLookup,
   lookupAlreadyConfirmed,
@@ -43,11 +45,11 @@ export function hydrateConfirmAppointmentSelections(session: CallSession): void 
   hydrateConfirmAppointmentOptionsFromLastLookup(session);
 }
 
-export function promoteConfirmAppointmentPendingAction(session: CallSession, tool?: ToolRequest): void {
-  syncSelectedConfirmAppointment(session, tool);
+export function promoteConfirmAppointmentPendingAction(session: CallSession, result?: ModelTurnResult): void {
+  syncSelectedConfirmAppointment(session, result?.toolRequest);
 
   const pending = session.pendingActions.CONFIRM_APPOINTMENT;
-  if (!pending || !callerAuthorizedSelectedAppointment(session)) {
+  if (!pending || !callerAuthorizedSelectedAppointment(result)) {
     return;
   }
 
@@ -144,10 +146,8 @@ function syncSelectedConfirmAppointment(session: CallSession, tool: ToolRequest 
   return true;
 }
 
-function callerAuthorizedSelectedAppointment(
-  session: CallSession
-): boolean {
-  return session.collectedFields.callerConfirmedSelectedAppointment === true;
+function callerAuthorizedSelectedAppointment(result: ModelTurnResult | undefined): boolean {
+  return callerActionExplicitlyAuthorizesConfirmation(result);
 }
 
 function isConfirmIntent(intent: string | undefined): boolean {

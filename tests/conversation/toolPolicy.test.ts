@@ -42,7 +42,7 @@ test("does not force lookup when fresh appointment data is already present", () 
   assert.equal(result, original);
 });
 
-test("retries appointment lookup instead of creating handoff when patient corrects identity", () => {
+test("retries appointment lookup instead of transferring when patient corrects identity", () => {
   const decision = applyWorkflowTurnPolicies(session({
     failureReason: "PATIENT_NOT_FOUND"
   }), {
@@ -51,7 +51,7 @@ test("retries appointment lookup instead of creating handoff when patient correc
       dob: "10/18/1999"
     },
     toolRequest: {
-      name: "CREATE_HANDOFF_REQUEST",
+      name: "TRANSFER_TO_STAFF",
       arguments: {}
     }
   });
@@ -125,10 +125,11 @@ test("retries confirm lookup when required date of birth is already known", () =
   });
 });
 
-test("keeps handoff when caller did not provide corrected identity", () => {
+test("keeps transfer when caller did not provide corrected identity", () => {
   const original = {
+    callerAction: explicitStaffTransfer(),
     toolRequest: {
-      name: "CREATE_HANDOFF_REQUEST",
+      name: "TRANSFER_TO_STAFF",
       arguments: {}
     }
   };
@@ -186,6 +187,38 @@ test("executes confirmation once selection and caller authorization are already 
   assert.equal(result?.toolRequest?.arguments.appointmentId, 503);
 });
 
+test("treats confirmation questions as non-authorizing even when the model requested confirmation", () => {
+  const decision = applyWorkflowTurnPolicies(session({
+    pendingAppointmentId: 503,
+    pendingStatus: "AWAITING_CALLER_CONFIRMATION",
+    selectionOptions: [
+      option(503, "9:20 AM on Wednesday, September 2, 2026")
+    ]
+  }), {
+    intent: "CONFIRM_APPOINTMENT",
+    callerAction: {
+      speechAct: "QUESTION",
+      workflowIntent: "CONFIRM_APPOINTMENT",
+      requestedAction: "CONFIRM_SELECTED_APPOINTMENT",
+      authorization: {
+        stateChangingAction: null,
+        isExplicit: false
+      }
+    },
+    toolRequest: {
+      name: "CONFIRM_APPOINTMENT",
+      arguments: {
+        appointmentId: 503
+      }
+    },
+    reply: "Your appointment has been confirmed."
+  });
+
+  assert.equal(decision?.overrideResult, undefined);
+  assert.equal(decision?.repromptContext?.type, "CHOOSE_CONFIRMABLE_APPOINTMENT");
+  assert.match(decision?.instruction ?? "", /not authorizing/i);
+});
+
 test("answers from completed confirmation state instead of re-confirming", () => {
   const decision = applyWorkflowTurnPolicies(session({
     workflowState: {
@@ -237,7 +270,7 @@ test("allows a new appointment lookup after completed confirmation", () => {
   assert.equal(decision, undefined);
 });
 
-test("prefers confirmation flow over fallback when a selected appointment exists", () => {
+test("prefers confirmation flow over fallback transfer when a selected appointment exists", () => {
   const decision = applyWorkflowTurnPolicies(session({
     pendingAppointmentId: 503,
     pendingStatus: "AWAITING_CALLER_CONFIRMATION",
@@ -247,7 +280,7 @@ test("prefers confirmation flow over fallback when a selected appointment exists
     ]
   }), {
     toolRequest: {
-      name: "CREATE_HANDOFF_REQUEST",
+      name: "TRANSFER_TO_STAFF",
       arguments: {}
     }
   });
@@ -255,6 +288,60 @@ test("prefers confirmation flow over fallback when a selected appointment exists
   assert.equal(decision?.overrideResult, undefined);
   assert.equal(decision?.repromptContext?.type, "CONFIRM_SELECTED_APPOINTMENT");
   assert.equal(decision?.repromptContext?.selectedAppointment?.appointmentId, 503);
+});
+
+test("allows explicit caller staff transfer during confirmation flow", () => {
+  const callSession = session({
+    pendingAppointmentId: 503,
+    pendingStatus: "AWAITING_CALLER_CONFIRMATION",
+    selectionOptions: [
+      option(502, "9:20 AM on Friday, August 21, 2026"),
+      option(503, "10:00 AM on Monday, August 24, 2026")
+    ]
+  });
+  callSession.transcript.push({
+    speaker: "patient",
+    text: "Please transfer me to the front desk instead.",
+    at: "2026-08-19T00:01:00.000Z"
+  });
+
+  const original = {
+    callerAction: explicitStaffTransfer(),
+    toolRequest: {
+      name: "TRANSFER_TO_STAFF",
+      arguments: {}
+    }
+  };
+  const decision = applyWorkflowTurnPolicies(callSession, original);
+  const result = decision?.overrideResult ?? original;
+
+  assert.equal(result, original);
+});
+
+test("allows explicit caller staff transfer intent during confirmation flow", () => {
+  const callSession = session({
+    pendingAppointmentId: 503,
+    pendingStatus: "AWAITING_CALLER_CONFIRMATION",
+    selectionOptions: [
+      option(502, "9:20 AM on Friday, August 21, 2026"),
+      option(503, "10:00 AM on Monday, August 24, 2026")
+    ]
+  });
+  callSession.transcript.push({
+    speaker: "patient",
+    text: "I want to talk to someone in the office.",
+    at: "2026-08-19T00:01:00.000Z"
+  });
+
+  const original = {
+    intent: "TRANSFER_TO_STAFF",
+    callerAction: explicitStaffTransfer(),
+    reply: "I will connect you to the office."
+  };
+  const decision = applyWorkflowTurnPolicies(callSession, original);
+  const result = decision?.overrideResult ?? original;
+
+  assert.equal(result, original);
 });
 
 test("asks the caller to choose instead of falling back when confirmable options exist", () => {
@@ -273,6 +360,33 @@ test("asks the caller to choose instead of falling back when confirmable options
   assert.equal(decision?.overrideResult, undefined);
   assert.equal(decision?.repromptContext?.type, "CHOOSE_CONFIRMABLE_APPOINTMENT");
   assert.equal(decision?.repromptContext?.options?.length, 2);
+});
+
+test("allows explicit caller staff transfer during patient-not-found recovery", () => {
+  const callSession = session({
+    collectedFields: {
+      firstName: "Kima",
+      lastName: "Miller"
+    },
+    failureReason: "PATIENT_NOT_FOUND"
+  });
+  callSession.transcript.push({
+    speaker: "patient",
+    text: "Can someone in the office handle this?",
+    at: "2026-08-19T00:01:00.000Z"
+  });
+
+  const original = {
+    callerAction: explicitStaffTransfer(),
+    toolRequest: {
+      name: "TRANSFER_TO_STAFF",
+      arguments: {}
+    }
+  };
+  const decision = applyWorkflowTurnPolicies(callSession, original);
+  const result = decision?.overrideResult ?? original;
+
+  assert.equal(result, original);
 });
 
 test("uses completed confirmation state after a successful confirm tool result", () => {
@@ -352,7 +466,7 @@ test("asks the caller to spell the name before falling back to staff on patient-
     failureReason: "PATIENT_NOT_FOUND"
   }), {
     toolRequest: {
-      name: "CREATE_HANDOFF_REQUEST",
+      name: "TRANSFER_TO_STAFF",
       arguments: {}
     }
   });
@@ -375,7 +489,7 @@ test("asks the caller to spell the name after lookup failure before falling back
       contractVersion: 1,
       workflow: "NEXT_APPOINTMENT",
       state: "FAILED",
-      allowedActions: ["GET_NEXT_APPOINTMENT", "CREATE_HANDOFF_REQUEST"],
+      allowedActions: ["GET_NEXT_APPOINTMENT", "TRANSFER_TO_STAFF"],
       failureReason: "PATIENT_NOT_FOUND",
       context: {
         patientVerified: false,
@@ -436,7 +550,7 @@ function session(input: {
       contractVersion: 1,
       workflow: "NEXT_APPOINTMENT",
       state: "FAILED",
-      allowedActions: ["GET_NEXT_APPOINTMENT", "CREATE_HANDOFF_REQUEST"],
+      allowedActions: ["GET_NEXT_APPOINTMENT", "TRANSFER_TO_STAFF"],
       failureReason: input.failureReason,
       context: {
         patientVerified: false,
@@ -451,5 +565,17 @@ function option(appointmentId: unknown, appointmentDate: string, doctorName = "D
     appointmentId,
     appointmentDate,
     doctorName
+  };
+}
+
+function explicitStaffTransfer() {
+  return {
+    speechAct: "REQUEST" as const,
+    workflowIntent: "TRANSFER_TO_STAFF" as const,
+    requestedAction: "TRANSFER_TO_STAFF" as const,
+    authorization: {
+      stateChangingAction: null,
+      isExplicit: true
+    }
   };
 }

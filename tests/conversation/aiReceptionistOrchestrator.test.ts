@@ -105,6 +105,7 @@ test("executes confirmation in one turn when caller names the appointment and as
           selectedAppointmentId: 502,
           callerConfirmedSelectedAppointment: true
         },
+        callerAction: explicitConfirmation(),
         toolRequest: {
           name: "GET_NEXT_APPOINTMENT",
           arguments: {
@@ -246,6 +247,7 @@ test("executes confirmation when caller says confirm on August 27 after hearing 
           selectedAppointmentId: 503,
           callerConfirmedSelectedAppointment: true
         },
+        callerAction: explicitConfirmation(),
         toolRequest: {
           name: "CONFIRM_APPOINTMENT",
           arguments: {}
@@ -409,4 +411,16 @@ function buildSession(store: CallSessionStore): CallSession {
   });
 
   return session;
+}
+
+function explicitConfirmation() {
+  return {
+    speechAct: "AUTHORIZATION" as const,
+    workflowIntent: "CONFIRM_APPOINTMENT" as const,
+    requestedAction: "CONFIRM_SELECTED_APPOINTMENT" as const,
+    authorization: {
+      stateChangingAction: "CONFIRM_APPOINTMENT" as const,
+      isExplicit: true
+    }
+  };
 }

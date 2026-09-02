@@ -2,6 +2,10 @@ import { CallSession } from "../../calls/callSession.js";
 import { ModelTurnResult } from "../../conversation/modelClient.js";
 import { normalizeAppointmentId } from "../../appointments/appointmentId.js";
 import { retryToolWithKnownRequiredField } from "../shared/workflowFieldSupport.js";
+import {
+  callerActionIsConfirmationQuestion,
+  callerActionRequestsStaffTransfer
+} from "../shared/callerActionDecision.js";
 import { ConversationWorkflow, ToolPolicyDecision } from "../shared/workflowTypes.js";
 import { WorkflowStateView } from "../shared/workflowStateView.js";
 import { ConfirmAppointmentStateView } from "./confirmAppointmentStateView.js";
@@ -34,6 +38,10 @@ function applyConfirmationExecutionBoundary(
     return undefined;
   }
 
+  if (isTransferToStaff(result) && callerActionRequestsStaffTransfer(result)) {
+    return undefined;
+  }
+
   const context = createConfirmAppointmentTurnContext(session, result);
   const requiredFieldRetry = retryToolWithKnownRequiredField({
     session,
@@ -43,6 +51,25 @@ function applyConfirmationExecutionBoundary(
   });
   if (requiredFieldRetry) {
     return requiredFieldRetry;
+  }
+
+  if (callerActionIsConfirmationQuestion(result)) {
+    return {
+      instruction: "The caller is asking about appointment confirmation, not authorizing a state-changing confirmation. Explain that you can help confirm an appointment, and ask which appointment they would like to confirm. Do not request CONFIRM_APPOINTMENT.",
+      repromptContext: {
+        type: context.selectionOptions.length > 0 ? "CHOOSE_CONFIRMABLE_APPOINTMENT" : "CONFIRM_SELECTED_APPOINTMENT",
+        selectedAppointment: context.pendingSelection ? {
+          appointmentId: context.pendingSelection.appointmentId,
+          appointmentDate: context.pendingSelection.appointmentDate,
+          doctorName: context.pendingSelection.doctorName
+        } : undefined,
+        options: context.selectionOptions.map((option) => ({
+          appointmentId: option.appointmentId,
+          appointmentDate: option.appointmentDate,
+          doctorName: option.doctorName
+        }))
+      }
+    };
   }
 
   if (shouldAnswerFromCompletedConfirmation(context)) {
@@ -74,7 +101,7 @@ function applyConfirmationExecutionBoundary(
 
   if (context.pendingSelection) {
     return {
-      instruction: "A confirmation execution boundary is active. Continue the confirmation workflow using the provided boundary context. Stay with appointment selection and confirmation. Do not use fallback staff transfer or follow-up unless the caller explicitly asks for staff or the backend requires handoff.",
+      instruction: "A confirmation execution boundary is active. Continue the confirmation workflow using the provided boundary context. Stay with appointment selection and confirmation unless the caller explicitly asks for staff or the backend requires handoff.",
       repromptContext: {
         type: "CONFIRM_SELECTED_APPOINTMENT",
         selectedAppointment: {
@@ -88,7 +115,7 @@ function applyConfirmationExecutionBoundary(
 
   if (context.selectionOptions.length > 0) {
     return {
-      instruction: "A confirmation execution boundary is active. Continue the confirmation workflow using the provided boundary context. Help the caller choose one confirmable appointment before any state-changing tool request. Do not use fallback staff transfer or follow-up unless the caller explicitly asks for staff or the backend requires handoff.",
+      instruction: "A confirmation execution boundary is active. Continue the confirmation workflow using the provided boundary context. Help the caller choose one confirmable appointment before any state-changing tool request unless the caller explicitly asks for staff or the backend requires handoff.",
       repromptContext: {
         type: "CHOOSE_CONFIRMABLE_APPOINTMENT",
         options: context.selectionOptions.map((option) => ({
@@ -105,6 +132,11 @@ function applyConfirmationExecutionBoundary(
 
 function isConfirmIntent(intent: string | undefined): boolean {
   return typeof intent === "string" && intent.trim().toUpperCase() === "CONFIRM_APPOINTMENT";
+}
+
+function isTransferToStaff(result: ModelTurnResult): boolean {
+  return result.toolRequest?.name === "TRANSFER_TO_STAFF"
+    || (typeof result.intent === "string" && result.intent.trim().toUpperCase() === "TRANSFER_TO_STAFF");
 }
 
 function applyConfirmationLookupBoundary(

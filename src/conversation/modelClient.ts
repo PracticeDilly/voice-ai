@@ -3,12 +3,14 @@ import { config } from "../config/env.js";
 import { ToolRequest } from "../backend/springBootClient.js";
 import { CallSession } from "../calls/callSession.js";
 import { ToolPolicyBoundaryContext } from "../workflows/shared/workflowTypes.js";
+import type { CallerActionDecision } from "../workflows/shared/callerActionDecision.js";
 import { buildSystemPrompt } from "./promptBuilder.js";
 
 export interface ModelTurnResult {
   reply?: string;
   toolRequest?: ToolRequest;
   intent?: string;
+  callerAction?: CallerActionDecision;
   collectedFields?: Record<string, unknown>;
   shouldEndCall?: boolean;
 }
@@ -121,12 +123,10 @@ export class ModelClient {
       return {
         reply: "I am sorry, I had trouble understanding that. Let me connect you with the office.",
         toolRequest: {
-          name: "CREATE_HANDOFF_REQUEST",
-          arguments: {
-            reason: "MODEL_RESPONSE_PARSE_FAILED"
-          }
+          name: "TRANSFER_TO_STAFF",
+          arguments: {}
         },
-        intent: "HANDOFF_TO_STAFF"
+        intent: "TRANSFER_TO_STAFF"
       };
     }
   }

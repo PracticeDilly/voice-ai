@@ -189,9 +189,8 @@ test("promotes pending confirmation after structured caller confirmation", () =>
     status: "AWAITING_CALLER_CONFIRMATION",
     createdAt: "2026-08-17T00:00:00.000Z"
   };
-  callSession.collectedFields.callerConfirmedSelectedAppointment = true;
 
-  promoteConfirmAppointmentPendingAction(callSession);
+  promoteConfirmAppointmentPendingAction(callSession, explicitConfirmation());
 
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT.status, "READY_TO_EXECUTE");
 });
@@ -199,7 +198,6 @@ test("promotes pending confirmation after structured caller confirmation", () =>
 test("promotes single looked-up appointment when caller already said to confirm it", () => {
   const callSession = session();
   callSession.currentIntent = "CONFIRM_APPOINTMENT";
-  callSession.collectedFields.callerConfirmedSelectedAppointment = true;
 
   syncConfirmAppointmentFromLookup(callSession, "GET_NEXT_APPOINTMENT", {
     name: "GET_NEXT_APPOINTMENT",
@@ -212,7 +210,7 @@ test("promotes single looked-up appointment when caller already said to confirm 
     }
   }, "CONFIRM_APPOINTMENT");
 
-  promoteConfirmAppointmentPendingAction(callSession);
+  promoteConfirmAppointmentPendingAction(callSession, explicitConfirmation());
 
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.appointmentId, 501);
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "READY_TO_EXECUTE");
@@ -222,7 +220,6 @@ test("promotes selected appointment from multiple options when caller names it a
   const callSession = session();
   callSession.currentIntent = "CONFIRM_APPOINTMENT";
   callSession.collectedFields.selectedAppointmentId = 501;
-  callSession.collectedFields.callerConfirmedSelectedAppointment = true;
 
   syncConfirmAppointmentFromLookup(callSession, "GET_NEXT_APPOINTMENT", {
     name: "GET_NEXT_APPOINTMENT",
@@ -235,7 +232,7 @@ test("promotes selected appointment from multiple options when caller names it a
     }
   }, "CONFIRM_APPOINTMENT");
 
-  promoteConfirmAppointmentPendingAction(callSession);
+  promoteConfirmAppointmentPendingAction(callSession, explicitConfirmation());
 
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.appointmentId, 501);
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "READY_TO_EXECUTE");
@@ -250,10 +247,12 @@ test("does not promote pending confirmation from tool arguments alone", () => {
   };
 
   promoteConfirmAppointmentPendingAction(callSession, {
-    name: "CONFIRM_APPOINTMENT",
-    arguments: {
-      appointmentId: 501,
-      callerConfirmedSelectedAppointment: true
+    toolRequest: {
+      name: "CONFIRM_APPOINTMENT",
+      arguments: {
+        appointmentId: 501,
+        callerConfirmedSelectedAppointment: true
+      }
     }
   });
 
@@ -363,5 +362,19 @@ function option(appointmentId: number, appointmentDate: string) {
   return {
     ...appointment(appointmentId, appointmentDate),
     source: appointment(appointmentId, appointmentDate)
+  };
+}
+
+function explicitConfirmation() {
+  return {
+    callerAction: {
+      speechAct: "AUTHORIZATION" as const,
+      workflowIntent: "CONFIRM_APPOINTMENT" as const,
+      requestedAction: "CONFIRM_SELECTED_APPOINTMENT" as const,
+      authorization: {
+        stateChangingAction: "CONFIRM_APPOINTMENT" as const,
+        isExplicit: true
+      }
+    }
   };
 }

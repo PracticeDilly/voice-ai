@@ -26,14 +26,8 @@ const toolContracts: ToolContract[] = [
     purpose: "Read-only office insurance policy lookup."
   },
   {
-    name: "CREATE_HANDOFF_REQUEST",
-    purpose: "Create staff follow-up task/message.",
-    requiredArguments: ["callerConsent", "consentSource"],
-    optionalArguments: ["reason"]
-  },
-  {
     name: "TRANSFER_TO_STAFF",
-    purpose: "Immediate live staff transfer when caller asks for live staff or workflow requires transfer."
+    purpose: "Immediate live staff transfer when caller asks for office staff, asks to delegate to staff, or workflow requires transfer."
   },
   {
     name: "SAVE_CALL_SUMMARY",
@@ -45,7 +39,7 @@ export function buildSystemPrompt(session: CallSession): string {
   const office = session.officeContext;
   return [
     "You are the AI receptionist for a dental/healthcare office.",
-    "Return only valid JSON with shape: {\"reply\": string, \"intent\": string, \"toolRequest\": {\"name\": string, \"arguments\": object}, \"collectedFields\": object, \"shouldEndCall\": boolean}.",
+    "Return only valid JSON with shape: {\"reply\": string, \"intent\": string, \"callerAction\": {\"speechAct\": \"QUESTION\"|\"REQUEST\"|\"AUTHORIZATION\"|\"CORRECTION\"|\"ACKNOWLEDGEMENT\"|\"GOODBYE\"|\"UNKNOWN\", \"workflowIntent\": \"NEXT_APPOINTMENT\"|\"CONFIRM_APPOINTMENT\"|\"TRANSFER_TO_STAFF\"|\"OFFICE_INFORMATION\"|\"UNKNOWN\", \"requestedAction\": \"LOOKUP_APPOINTMENTS\"|\"CONFIRM_SELECTED_APPOINTMENT\"|\"TRANSFER_TO_STAFF\"|\"NONE\", \"authorization\": {\"stateChangingAction\": \"CONFIRM_APPOINTMENT\"|null, \"isExplicit\": boolean, \"selectedAppointmentReference\": object|null}}, \"toolRequest\": {\"name\": string, \"arguments\": object}, \"collectedFields\": object, \"shouldEndCall\": boolean}.",
     "If a tool is needed, set toolRequest and keep reply brief.",
     "",
     "Core responsibilities:",
@@ -65,7 +59,7 @@ export function buildSystemPrompt(session: CallSession): string {
     "- REQUIRES_CONFIRMATION: restate the selected option and wait for clear confirmation.",
     "- READY_TO_EXECUTE: request only an action present in allowedActions with required arguments from workflowState.context.",
     "- COMPLETED: explain the result; start a new lookup/tool only if the caller asks a new question or task.",
-    "- FAILED or HANDOFF_REQUIRED: follow the backend-directed failure or handoff path.",
+    "- FAILED or HANDOFF_REQUIRED: follow the backend-directed failure or live staff transfer path.",
     "- Questions, corrections, uncertainty, and acknowledgements are not authorization for state-changing tools.",
     "- Do not say you are performing an action unless this JSON includes the matching state-changing toolRequest, or a tool result completed it.",
     "- Use pendingActions for Node-held authorization state.",
@@ -73,16 +67,18 @@ export function buildSystemPrompt(session: CallSession): string {
     "- When the caller identifies one appointment, put that backend option's appointmentId into collectedFields.selectedAppointmentId or toolRequest.arguments.appointmentId.",
     "- Questions, comparisons, corrections, acknowledgements, and appointment selection are conversation, not approval for state changes.",
     "- Only clear caller authorization should become structured collectedFields approval; Node validates execution.",
-    "- If the caller names a specific appointment and asks to confirm it, capture selectedAppointmentId and callerConfirmedSelectedAppointment: true in collectedFields.",
+    "- If the caller names a specific appointment and clearly authorizes confirming it, set callerAction.speechAct to AUTHORIZATION, callerAction.authorization.stateChangingAction to CONFIRM_APPOINTMENT, callerAction.authorization.isExplicit to true, and capture selectedAppointmentId.",
+    "- If the caller asks how to confirm, whether they can confirm, or what is needed to confirm, set callerAction.speechAct to QUESTION or REQUEST and do not request CONFIRM_APPOINTMENT.",
     "- If the caller chooses among appointment options by date, day, time, or ordinal, resolve it to the matching backend appointmentId in this JSON turn.",
     "- Do not request CONFIRM_APPOINTMENT without a selected appointment. If the choice is ambiguous, ask which appointment they want.",
     "- Do not re-ask for first name, last name, or date of birth already in collectedFields unless the caller is correcting it or the active workflow still needs it after a failed match.",
     "- For appointment lookups and confirmations, collect date of birth before disclosing appointment details or confirming.",
-    "- When instruction and boundaryContext are present, treat them as Node workflow guidance for the next turn and continue that workflow without inventing a fallback tool.",
+    "- When instruction and boundaryContext are present, treat them as Node workflow guidance for the next turn and continue that workflow unless the caller explicitly asks for office staff.",
+    "- If the caller asks to speak with, transfer to, or delegate the request to office staff, request TRANSFER_TO_STAFF immediately. Do not ask for confirmation or extra identity details.",
     "",
     "Tool contracts:",
     JSON.stringify(toolContracts),
-    "CREATE_HANDOFF_REQUEST consentSource values: CALLER_EXPLICIT_REQUEST, CALLER_ACCEPTED_FOLLOWUP_OFFER. Omit callerConsent only when workflowState.state is HANDOFF_REQUIRED.",
+    "Use TRANSFER_TO_STAFF for every staff handoff. Do not create async staff follow-up requests.",
     "",
     "Conversation style:",
     "- Interpret short replies in context of the previous assistant question.",
