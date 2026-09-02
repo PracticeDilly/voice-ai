@@ -215,6 +215,9 @@ export class ConversationRelayHandler {
                 observedInputVersion: latestObservedInputVersion
               };
             },
+            (committedPrompt) => {
+              void this.orchestrator.recordCallerTurn(session, committedPrompt.text);
+            },
             () => {
               void processCommittedPrompts(session);
             }
@@ -332,7 +335,9 @@ export class ConversationRelayHandler {
     const processingAckTimer = this.scheduleProcessingAcknowledgement(context, startedAt, () => processing);
     let outcome;
     try {
-      outcome = await this.orchestrator.handleCallerText(context.session, context.callerText);
+      outcome = await this.orchestrator.handleCallerText(context.session, context.callerText, {
+        recordCallerTurn: false
+      });
     } finally {
       processing = false;
       this.clearTimer(processingAckTimer);
@@ -437,6 +442,7 @@ export class ConversationRelayHandler {
     existingTimer: ReturnType<typeof setTimeout> | undefined,
     setPendingPromptTimer: (timer: ReturnType<typeof setTimeout> | undefined) => void,
     createPromptMetadata: () => Pick<CommittedPrompt, "turnId" | "observedInputVersion">,
+    onCommittedPromptCreated: (committedPrompt: CommittedPrompt) => void,
     onCommittedPromptQueued: () => void
   ): ReturnType<typeof setTimeout> {
     this.clearTimer(existingTimer);
@@ -445,6 +451,7 @@ export class ConversationRelayHandler {
       setPendingPromptTimer(undefined);
       const committedPrompt = this.commitPendingPrompt(pendingPromptParts, createPromptMetadata);
       if (committedPrompt) {
+        onCommittedPromptCreated(committedPrompt);
         committedPromptQueue.push(committedPrompt);
       }
       if (pendingPromptResolvers.length > 0) {

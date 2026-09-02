@@ -80,6 +80,7 @@ export class SpringBootClient {
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const response = await fetch(new URL(path, config.SPRING_BOOT_BASE_URL), {
       ...init,
+      signal: init.signal ?? AbortSignal.timeout(config.SPRING_BOOT_TIMEOUT_MS),
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${config.SPRING_BOOT_SERVICE_TOKEN}`,

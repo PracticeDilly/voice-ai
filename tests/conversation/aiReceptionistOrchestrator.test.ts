@@ -19,6 +19,7 @@ test("returns a deterministic confirmation prompt when a selected appointment st
     modelClient: {
       nextTurn(session: CallSession, callerText: string): Promise<ModelTurnResult>;
       continueWithToolResult(session: CallSession, toolResult: unknown): Promise<ModelTurnResult>;
+      continueWithPolicyInstruction(session: CallSession, instruction: string, boundaryContext?: unknown): Promise<ModelTurnResult>;
     };
     toolExecutor: {
       execute(session: CallSession, tool: ToolRequest): Promise<ToolResult>;
@@ -31,6 +32,7 @@ test("returns a deterministic confirmation prompt when a selected appointment st
     modelClient: {
       nextTurn(session: CallSession, callerText: string): Promise<ModelTurnResult>;
       continueWithToolResult(session: CallSession, toolResult: unknown): Promise<ModelTurnResult>;
+      continueWithPolicyInstruction(session: CallSession, instruction: string, boundaryContext?: unknown): Promise<ModelTurnResult>;
     };
   }).modelClient = {
     async nextTurn() {
@@ -41,6 +43,12 @@ test("returns a deterministic confirmation prompt when a selected appointment st
     },
     async continueWithToolResult() {
       throw new Error("tool result follow-up should not be needed before caller approval");
+    },
+    async continueWithPolicyInstruction() {
+      return {
+        intent: "CONFIRM_APPOINTMENT",
+        reply: "To confirm your appointment on August 27, 2026, at 8:20 AM with Dr. David Johnson, should I go ahead and confirm it for you?"
+      };
     }
   };
 
@@ -329,6 +337,7 @@ test("returns a bounded choice prompt when confirmation is still ambiguous", asy
     modelClient: {
       nextTurn(session: CallSession, callerText: string): Promise<ModelTurnResult>;
       continueWithToolResult(session: CallSession, toolResult: unknown): Promise<ModelTurnResult>;
+      continueWithPolicyInstruction(session: CallSession, instruction: string, boundaryContext?: unknown): Promise<ModelTurnResult>;
     };
     toolExecutor: {
       execute(session: CallSession, tool: ToolRequest): Promise<ToolResult>;
@@ -341,6 +350,7 @@ test("returns a bounded choice prompt when confirmation is still ambiguous", asy
     modelClient: {
       nextTurn(session: CallSession, callerText: string): Promise<ModelTurnResult>;
       continueWithToolResult(session: CallSession, toolResult: unknown): Promise<ModelTurnResult>;
+      continueWithPolicyInstruction(session: CallSession, instruction: string, boundaryContext?: unknown): Promise<ModelTurnResult>;
     };
   }).modelClient = {
     async nextTurn() {
@@ -355,6 +365,12 @@ test("returns a bounded choice prompt when confirmation is still ambiguous", asy
     },
     async continueWithToolResult() {
       throw new Error("tool execution should not happen for unresolved appointment selection");
+    },
+    async continueWithPolicyInstruction() {
+      return {
+        intent: "CONFIRM_APPOINTMENT",
+        reply: "There are multiple appointments available to confirm: August 26, 2026, and August 27, 2026. Which one would you like to confirm?"
+      };
     }
   };
 

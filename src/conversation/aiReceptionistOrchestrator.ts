@@ -49,18 +49,15 @@ export class AiReceptionistOrchestrator {
     return session;
   }
 
-  async handleCallerText(session: CallSession, callerText: string): Promise<ConversationTurnOutcome> {
+  async handleCallerText(
+    session: CallSession,
+    callerText: string,
+    options: { recordCallerTurn?: boolean } = {}
+  ): Promise<ConversationTurnOutcome> {
     const turnStartedAt = Date.now();
-    this.sessions.append(session, {
-      speaker: "patient",
-      text: callerText
-    });
-    await this.trySaveTranscriptTurn({
-      callSid: session.callSid,
-      officeCode: session.officeCode,
-      speaker: "patient",
-      text: callerText
-    });
+    if (options.recordCallerTurn !== false) {
+      await this.recordCallerTurn(session, callerText);
+    }
 
     const firstModelStartedAt = Date.now();
     const firstResult = await this.modelClient.nextTurn(session, callerText);
@@ -263,6 +260,19 @@ export class AiReceptionistOrchestrator {
     }
 
     return this.resolveModelResult(session, policyDecision.overrideResult ?? firstResult);
+  }
+
+  async recordCallerTurn(session: CallSession, text: string): Promise<void> {
+    this.sessions.append(session, {
+      speaker: "patient",
+      text
+    });
+    await this.trySaveTranscriptTurn({
+      callSid: session.callSid,
+      officeCode: session.officeCode,
+      speaker: "patient",
+      text
+    });
   }
 
   private async continueFromPolicyReprompt(
