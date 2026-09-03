@@ -280,7 +280,23 @@ export class AiReceptionistOrchestrator {
     instruction: string,
     boundaryContext?: Parameters<ModelClient["continueWithPolicyInstruction"]>[2]
   ): Promise<ModelTurnResult> {
+    const repromptStartedAt = Date.now();
+    logger.info("AI policy reprompt started", {
+      callSid: session.callSid,
+      officeCode: session.officeCode,
+      currentIntent: session.currentIntent,
+      boundaryContextType: boundaryContext?.type,
+      workflowStateSummary: this.workflowStateSummary(session)
+    });
     const repromptResult = await this.modelClient.continueWithPolicyInstruction(session, instruction, boundaryContext);
+    logger.info("AI policy reprompt completed", {
+      callSid: session.callSid,
+      officeCode: session.officeCode,
+      currentIntent: session.currentIntent,
+      boundaryContextType: boundaryContext?.type,
+      requestedToolName: repromptResult.toolRequest?.name,
+      durationMs: Date.now() - repromptStartedAt
+    });
 
     if (repromptResult.intent) {
       session.currentIntent = repromptResult.intent;

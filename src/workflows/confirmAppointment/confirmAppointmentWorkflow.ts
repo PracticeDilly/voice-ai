@@ -54,6 +54,10 @@ function applyConfirmationExecutionBoundary(
     return requiredFieldRetry;
   }
 
+  if (result.toolRequest?.name === "GET_NEXT_APPOINTMENT") {
+    return undefined;
+  }
+
   if (callerActionIsConfirmationQuestion(result)) {
     return {
       instruction: "The caller is asking about appointment confirmation, not authorizing a state-changing confirmation. Explain that you can help confirm an appointment, and ask which appointment they would like to confirm. Do not request CONFIRM_APPOINTMENT.",

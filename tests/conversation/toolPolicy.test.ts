@@ -125,6 +125,38 @@ test("retries confirm lookup when required date of birth is already known", () =
   });
 });
 
+test("allows read-only appointment lookup during confirmation instead of policy reprompting", () => {
+  const original = {
+    intent: "CONFIRM_APPOINTMENT",
+    callerAction: {
+      speechAct: "QUESTION" as const,
+      workflowIntent: "CONFIRM_APPOINTMENT" as const,
+      requestedAction: "LOOKUP_APPOINTMENTS" as const,
+      authorization: {
+        stateChangingAction: null,
+        isExplicit: false
+      }
+    },
+    collectedFields: {
+      selectedAppointmentDate: "September 3",
+      selectedAppointmentTime: "around 10AM"
+    },
+    toolRequest: {
+      name: "GET_NEXT_APPOINTMENT",
+      arguments: {
+        selectedAppointmentDate: "September 3",
+        selectedAppointmentTime: "around 10AM"
+      }
+    }
+  };
+
+  const decision = applyWorkflowTurnPolicies(session({}), original);
+  const result = decision?.overrideResult ?? original;
+
+  assert.equal(decision?.repromptContext, undefined);
+  assert.equal(result.toolRequest?.name, "GET_NEXT_APPOINTMENT");
+});
+
 test("keeps transfer when caller did not provide corrected identity", () => {
   const original = {
     callerAction: explicitStaffTransfer(),
