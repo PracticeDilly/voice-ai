@@ -8,6 +8,7 @@ test("builds a compact workflow-oriented prompt", () => {
 
   assert.match(prompt, /Workflow protocol:/);
   assert.match(prompt, /Tool contracts:/);
+  assert.match(prompt, /BOOK_APPOINTMENT/);
   assert.match(prompt, /Use TRANSFER_TO_STAFF for every staff handoff/);
   assert.doesNotMatch(prompt, /CREATE_HANDOFF_REQUEST/);
   assert.doesNotMatch(prompt, /GETevant|reldo/);

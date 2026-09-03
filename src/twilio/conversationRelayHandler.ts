@@ -120,8 +120,8 @@ export class ConversationRelayHandler {
         if (this.isSetupMessage(message)) {
           const session = await this.handleSetup(message);
           callSid = session.callSid;
+          const greeting = session.officeContext?.aiGreeting ?? "Thank you for calling. How can I help you today?";
           if (message.customParameters?.welcomeGreetingProvided !== "true") {
-            const greeting = session.officeContext?.aiGreeting ?? "Thank you for calling. How can I help you today?";
             await this.orchestrator.recordAssistantTurn(session, greeting, {
               source: "setup-greeting"
             });
@@ -130,6 +130,20 @@ export class ConversationRelayHandler {
               token: greeting,
               last: true
             });
+            noInputTimer = this.resetNoInputTimer(
+              session,
+              ws,
+              greeting,
+              noInputTimer,
+              noInputCount,
+              (value) => {
+                noInputCount = value;
+              },
+              (timer) => {
+                noInputTimer = timer;
+              }
+            );
+          } else {
             noInputTimer = this.resetNoInputTimer(
               session,
               ws,

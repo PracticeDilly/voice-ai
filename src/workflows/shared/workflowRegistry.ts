@@ -1,11 +1,13 @@
 import { ToolRequest } from "../../backend/springBootClient.js";
 import { CallSession } from "../../calls/callSession.js";
 import { ModelTurnResult } from "../../conversation/modelClient.js";
+import { bookAppointmentWorkflow } from "../bookAppointment/bookAppointmentWorkflow.js";
 import { confirmAppointmentWorkflow } from "../confirmAppointment/confirmAppointmentWorkflow.js";
 import { nextAppointmentWorkflow } from "../nextAppointment/nextAppointmentWorkflow.js";
 import { ConversationWorkflow, ToolPolicyDecision } from "./workflowTypes.js";
 
 const workflows: ConversationWorkflow[] = [
+  bookAppointmentWorkflow,
   confirmAppointmentWorkflow,
   nextAppointmentWorkflow
 ];

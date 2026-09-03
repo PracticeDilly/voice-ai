@@ -24,6 +24,17 @@ export interface WorkflowContext extends Record<string, unknown> {
   selectedAppointmentId?: unknown;
   requiresExplicitConfirmation?: boolean;
   alreadyConfirmed?: boolean;
+  patientId?: unknown;
+  patientName?: string;
+  reason?: string;
+  appointmentTypeId?: unknown;
+  appointmentTypeName?: string;
+  providerId?: unknown;
+  providerName?: string;
+  providerOptions?: unknown[];
+  slots?: unknown[];
+  slotDate?: string;
+  slotTime?: string;
 }
 
 interface WorkflowEnvelopeCandidate extends Record<string, unknown> {
@@ -142,6 +153,7 @@ function normalizeWorkflowName(value: unknown): string | undefined {
   const aliasMap: Record<string, string> = {
     CONFIRM_APPOINTMENT: "CONFIRM_APPOINTMENT",
     NEXT_APPOINTMENT: "NEXT_APPOINTMENT",
+    BOOK_APPOINTMENT: "BOOK_APPOINTMENT",
     CANCEL_APPOINTMENT: "CANCEL_APPOINTMENT",
     RESCHEDULE_APPOINTMENT: "RESCHEDULE_APPOINTMENT",
     TRANSFER_TO_STAFF: "TRANSFER_TO_STAFF",

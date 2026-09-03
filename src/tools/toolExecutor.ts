@@ -5,6 +5,7 @@ import { prepareWorkflowTool, validateWorkflowTool } from "../workflows/shared/w
 
 const allowedTools = new Set([
   "VERIFY_PATIENT",
+  "BOOK_APPOINTMENT",
   "GET_NEXT_APPOINTMENT",
   "CONFIRM_APPOINTMENT",
   "GET_INSURANCE_POLICY",

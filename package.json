@@ -9,7 +9,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "test": "tsx --test tests/appointments/appointmentConfirmation.test.ts tests/appointments/appointmentLookupCache.test.ts tests/appointments/appointmentPendingAction.test.ts tests/appointments/nextAppointment.test.ts tests/conversation/aiReceptionistOrchestrator.test.ts tests/conversation/promptBuilder.test.ts tests/conversation/toolPolicy.test.ts",
+    "test": "tsx --test tests/appointments/appointmentBooking.test.ts tests/appointments/appointmentConfirmation.test.ts tests/appointments/appointmentLookupCache.test.ts tests/appointments/appointmentPendingAction.test.ts tests/appointments/nextAppointment.test.ts tests/conversation/aiReceptionistOrchestrator.test.ts tests/conversation/conversationRelayHandler.test.ts tests/conversation/promptBuilder.test.ts tests/conversation/toolPolicy.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "engines": {
