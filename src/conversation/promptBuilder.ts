@@ -84,6 +84,7 @@ export function buildSystemPrompt(session: CallSession): string {
     "- In spoken replies, never ask for backend date formats or repeat validation text; if ambiguous, ask naturally.",
     "- If caller is flexible, choose the earliest acceptable concrete date; do not send flexible words.",
     "- In booking SELECT_OPTION use only backend providerOptions/slots; speak 3 to 5 matching slots max, offer more if none work.",
+    "- When the caller chooses one offered booking slot, send BOOK_APPOINTMENT with slotDate and slotTime copied exactly from workflowState.context.slots; do not send the chosen slot only as timePreference.",
     "- In booking REQUIRES_CONFIRMATION restate provider/date/time from workflowState.context and set callerConfirmedBooking true only after a clear yes.",
     "- Follow instruction and boundaryContext unless the caller explicitly asks for staff.",
     "- If the caller asks for staff, request TRANSFER_TO_STAFF immediately without extra questions.",

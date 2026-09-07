@@ -88,6 +88,31 @@ test("allows final booking after backend confirmation state with selected slot",
   assert.equal(error, undefined);
 });
 
+test("maps selected booking time preference to backend slot fields", () => {
+  const callSession = session();
+  callSession.workflowState = {
+    contractVersion: 1,
+    workflow: "BOOK_APPOINTMENT",
+    state: "SELECT_SLOT",
+    context: {
+      slots: [
+        { slotDate: "09/08/2026", slotTime: "09:10 AM" },
+        { slotDate: "09/08/2026", slotTime: "10:10 AM" }
+      ]
+    }
+  };
+
+  const prepared = new BookAppointmentToolAdapter().prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: {
+      timePreference: "10:10AM"
+    }
+  });
+
+  assert.equal(prepared.arguments.slotDate, "09/08/2026");
+  assert.equal(prepared.arguments.slotTime, "10:10 AM");
+});
+
 function session(): CallSession {
   return {
     callSid: "CA-test",
