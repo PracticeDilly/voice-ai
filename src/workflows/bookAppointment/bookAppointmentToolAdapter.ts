@@ -2,19 +2,7 @@ import { ToolRequest } from "../../backend/springBootClient.js";
 import { CallSession } from "../../calls/callSession.js";
 import { logger } from "../../utils/logger.js";
 import { WorkflowToolAdapter } from "../shared/workflowTypes.js";
-
-const bookingFieldNames = [
-  "firstName",
-  "lastName",
-  "dob",
-  "reason",
-  "providerName",
-  "datePreference",
-  "timePreference",
-  "slotDate",
-  "slotTime",
-  "callerConfirmedBooking"
-];
+import { normalizeBookingArguments } from "./bookingArgumentNormalizer.js";
 
 export class BookAppointmentToolAdapter implements WorkflowToolAdapter {
   supports(tool: ToolRequest): boolean {
@@ -22,24 +10,11 @@ export class BookAppointmentToolAdapter implements WorkflowToolAdapter {
   }
 
   prepareTool(session: CallSession, tool: ToolRequest): ToolRequest {
-    const preparedArguments: Record<string, unknown> = {};
-    for (const fieldName of bookingFieldNames) {
-      const value = tool.arguments?.[fieldName] ?? session.collectedFields[fieldName];
-      if (value !== undefined && value !== null && value !== "") {
-        preparedArguments[fieldName] = value;
-      }
-    }
-
-    if (session.fromNumber && preparedArguments.fromNumber === undefined) {
-      preparedArguments.fromNumber = session.fromNumber;
-    }
-
-    addKnownSlotField(preparedArguments, "slotDate", tool.arguments?.slotDate, session.workflowState?.context?.slotDate);
-    addKnownSlotField(preparedArguments, "slotTime", tool.arguments?.slotTime, session.workflowState?.context?.slotTime);
+    const preparedArguments = normalizeBookingArguments(session, tool.arguments);
     logger.debug("Prepared booking tool arguments", {
       callSid: session.callSid,
       officeCode: session.officeCode,
-      hasReason: preparedArguments.reason !== undefined,
+      hasBookingReason: preparedArguments.bookingReason !== undefined,
       hasProviderName: preparedArguments.providerName !== undefined,
       hasDatePreference: preparedArguments.datePreference !== undefined,
       hasTimePreference: preparedArguments.timePreference !== undefined,
@@ -89,17 +64,5 @@ export class BookAppointmentToolAdapter implements WorkflowToolAdapter {
     }
 
     return undefined;
-  }
-}
-
-function addKnownSlotField(
-  target: Record<string, unknown>,
-  fieldName: "slotDate" | "slotTime",
-  argumentValue: unknown,
-  contextValue: unknown
-): void {
-  const value = argumentValue ?? contextValue;
-  if (value !== undefined && value !== null && value !== "") {
-    target[fieldName] = value;
   }
 }

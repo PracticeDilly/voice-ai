@@ -26,7 +26,7 @@ export interface WorkflowContext extends Record<string, unknown> {
   alreadyConfirmed?: boolean;
   patientId?: unknown;
   patientName?: string;
-  reason?: string;
+  bookingReason?: string;
   appointmentTypeId?: unknown;
   appointmentTypeName?: string;
   providerId?: unknown;

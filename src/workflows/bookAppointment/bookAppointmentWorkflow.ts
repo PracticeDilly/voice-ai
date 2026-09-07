@@ -57,7 +57,7 @@ function hasBookingField(fields: Record<string, unknown> | undefined): boolean {
     "firstName",
     "lastName",
     "dob",
-    "reason",
+    "bookingReason",
     "providerName",
     "datePreference",
     "timePreference",

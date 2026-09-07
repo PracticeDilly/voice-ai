@@ -8,7 +8,7 @@ test("prepares booking request with caller number and collected conversational f
   callSession.fromNumber = "+15551234567";
   callSession.collectedFields.firstName = "Priya";
   callSession.collectedFields.dob = "1990-04-15";
-  callSession.collectedFields.reason = "tooth pain";
+  callSession.collectedFields.bookingReason = "tooth pain";
   callSession.collectedFields.datePreference = "09/04/2026";
   callSession.collectedFields.timePreference = "morning";
 
@@ -21,11 +21,36 @@ test("prepares booking request with caller number and collected conversational f
 
   assert.equal(prepared.arguments.firstName, "Priya");
   assert.equal(prepared.arguments.dob, "1990-04-15");
-  assert.equal(prepared.arguments.reason, "tooth pain");
+  assert.equal(prepared.arguments.bookingReason, "tooth pain");
   assert.equal(prepared.arguments.providerName, "Dr. Shah");
   assert.equal(prepared.arguments.datePreference, "09/04/2026");
   assert.equal(prepared.arguments.timePreference, "morning");
   assert.equal(prepared.arguments.fromNumber, "+15551234567");
+});
+
+test("normalizes model booking date preferences", () => {
+  const callSession = session();
+  callSession.startedAt = "2026-09-07T07:35:00.000Z";
+  callSession.officeContext = {
+    officeCode: "OFC001",
+    timezone: "America/Los_Angeles"
+  };
+
+  const prepared = new BookAppointmentToolAdapter().prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: {
+      firstName: "Nancy",
+      lastName: "Jones",
+      dob: "04/01/2000",
+      bookingReason: "teeth whitening",
+      datePreference: "Wednesday",
+      timePreference: "morning"
+    }
+  });
+
+  assert.equal(prepared.arguments.bookingReason, "teeth whitening");
+  assert.equal(prepared.arguments.datePreference, "09/09/2026");
+  assert.equal(prepared.arguments.timePreference, "morning");
 });
 
 test("rejects final booking before backend confirmation state", () => {

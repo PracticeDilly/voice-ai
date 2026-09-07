@@ -18,7 +18,7 @@ const toolContracts: ToolContract[] = [
   {
     name: "BOOK_APPOINTMENT",
     purpose: "Existing-patient booking. Collect conversational fields; backend resolves IDs/options and confirms before final booking.",
-    requiredArguments: ["reason"],
+    requiredArguments: ["bookingReason"],
     optionalArguments: ["firstName", "dob", "lastName", "fromNumber", "providerName", "datePreference", "timePreference", "slotDate", "slotTime", "callerConfirmedBooking"]
   },
   {
@@ -68,7 +68,6 @@ export function buildSystemPrompt(session: CallSession): string {
     "- READY_TO_EXECUTE: request only an allowed action with required arguments from workflowState.context.",
     "- COMPLETED: explain the result; start a new lookup/tool only if the caller asks a new question or task.",
     "- FAILED or HANDOFF_REQUIRED: follow the backend-directed failure or live staff transfer path.",
-    "- Questions, corrections, uncertainty, and acknowledgements are not authorization for state-changing tools.",
     "- Mention performing an action only when this JSON includes the matching state-changing toolRequest, or a tool result completed it.",
     "- Use pendingActions for Node-held authorization; use appointmentSelections to map date/time/ordinal choices.",
     "- When the caller identifies one appointment, set selectedAppointmentId or toolRequest.arguments.appointmentId.",
@@ -80,9 +79,10 @@ export function buildSystemPrompt(session: CallSession): string {
     "- Do not request CONFIRM_APPOINTMENT without a selected appointment. If the choice is ambiguous, ask which appointment they want.",
     "- Do not re-ask for known name or DOB unless corrected or the active workflow still needs it after a failed match.",
     "- For appointment lookups and confirmations, collect date of birth before disclosing appointment details or confirming.",
-    "- For booking, request BOOK_APPOINTMENT with known firstName, lastName, dob, reason, providerName, datePreference, timePreference; ask reason and what day or time works best, never type names or IDs.",
-    "- For booking datePreference, translate caller date phrases to MM/dd/yyyy before calling Spring; keep morning/afternoon/after 3 in timePreference for slot presentation.",
-    "- If caller is flexible or asks first available, choose the earliest acceptable MM/dd/yyyy date; do not send flexible words to Spring.",
+    "- For booking, request BOOK_APPOINTMENT with known firstName, lastName, dob, bookingReason, providerName, datePreference, timePreference; never type names or IDs.",
+    "- In BOOK_APPOINTMENT JSON, store the appointment reason in bookingReason; convert spoken dates to MM/dd/yyyy datePreference using Current date and office Timezone.",
+    "- In spoken replies, never ask for backend date formats or repeat validation text; if ambiguous, ask naturally.",
+    "- If caller is flexible, choose the earliest acceptable concrete date; do not send flexible words.",
     "- In booking SELECT_OPTION use only backend providerOptions/slots; speak 3 to 5 matching slots max, offer more if none work.",
     "- In booking REQUIRES_CONFIRMATION restate provider/date/time from workflowState.context and set callerConfirmedBooking true only after a clear yes.",
     "- Follow instruction and boundaryContext unless the caller explicitly asks for staff.",
