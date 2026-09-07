@@ -73,6 +73,33 @@ test("keeps booking workflow instead of premature staff transfer for booking det
   });
 });
 
+test("keeps booking workflow instead of premature staff transfer during active booking intent", () => {
+  const decision = applyWorkflowTurnPolicies(session({
+    currentIntent: "BOOK_APPOINTMENT",
+    collectedFields: {
+      firstName: "Nancy",
+      lastName: "Jones",
+      dob: "04/01/2000"
+    }
+  }), {
+    intent: "delegate_to_staff",
+    shouldEndCall: true,
+    toolRequest: {
+      name: "TRANSFER_TO_STAFF",
+      arguments: {}
+    }
+  });
+
+  assert.equal(decision?.overrideResult?.intent, "BOOK_APPOINTMENT");
+  assert.equal(decision?.overrideResult?.shouldEndCall, false);
+  assert.equal(decision?.overrideResult?.toolRequest?.name, "BOOK_APPOINTMENT");
+  assert.deepEqual(decision?.overrideResult?.toolRequest?.arguments, {
+    firstName: "Nancy",
+    lastName: "Jones",
+    dob: "04/01/2000"
+  });
+});
+
 test("retries appointment lookup instead of transferring when patient corrects identity", () => {
   const decision = applyWorkflowTurnPolicies(session({
     failureReason: "PATIENT_NOT_FOUND"

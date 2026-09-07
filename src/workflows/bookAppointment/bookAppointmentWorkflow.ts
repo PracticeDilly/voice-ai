@@ -13,7 +13,7 @@ export const bookAppointmentWorkflow: ConversationWorkflow = {
       return undefined;
     }
 
-    if (isPrematureBookingHandoff(result)) {
+    if (isPrematureBookingHandoff(session, result)) {
       return {
         overrideResult: {
           ...result,
@@ -65,8 +65,13 @@ function isBookingIntent(intent: string | undefined): boolean {
   return typeof intent === "string" && intent.trim().toUpperCase() === "BOOK_APPOINTMENT";
 }
 
-function isPrematureBookingHandoff(result: ModelTurnResult): boolean {
+function isPrematureBookingHandoff(session: CallSession, result: ModelTurnResult): boolean {
   if (result.toolRequest?.name !== "TRANSFER_TO_STAFF" && result.intent !== "TRANSFER_TO_STAFF") {
+    return false;
+  }
+
+  if (session.workflowState?.workflow === "BOOK_APPOINTMENT"
+    && ["FAILED", "HANDOFF_REQUIRED"].includes(session.workflowState.state)) {
     return false;
   }
 
@@ -75,7 +80,7 @@ function isPrematureBookingHandoff(result: ModelTurnResult): boolean {
     return false;
   }
 
-  return hasBookingField(result.collectedFields);
+  return isBookingIntent(session.currentIntent) || hasBookingField(result.collectedFields);
 }
 
 function hasBookingField(fields: Record<string, unknown> | undefined): boolean {
