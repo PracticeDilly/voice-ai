@@ -12,6 +12,7 @@ export type SpeechAct =
 export type WorkflowIntent =
   | "NEXT_APPOINTMENT"
   | "CONFIRM_APPOINTMENT"
+  | "BOOK_APPOINTMENT"
   | "TRANSFER_TO_STAFF"
   | "OFFICE_INFORMATION"
   | "UNKNOWN";
@@ -19,11 +20,12 @@ export type WorkflowIntent =
 export type RequestedAction =
   | "LOOKUP_APPOINTMENTS"
   | "CONFIRM_SELECTED_APPOINTMENT"
+  | "BOOK_APPOINTMENT"
   | "TRANSFER_TO_STAFF"
   | "NONE";
 
 export interface CallerActionAuthorization {
-  stateChangingAction?: "CONFIRM_APPOINTMENT" | null;
+  stateChangingAction?: "CONFIRM_APPOINTMENT" | "BOOK_APPOINTMENT" | null;
   isExplicit?: boolean;
   selectedAppointmentReference?: Record<string, unknown> | null;
 }
@@ -43,6 +45,12 @@ export function callerActionRequestsStaffTransfer(result: ModelTurnResult): bool
 export function callerActionExplicitlyAuthorizesConfirmation(result?: ModelTurnResult): boolean {
   return result?.callerAction?.speechAct === "AUTHORIZATION"
     && result.callerAction.authorization?.stateChangingAction === "CONFIRM_APPOINTMENT"
+    && result.callerAction.authorization.isExplicit === true;
+}
+
+export function callerActionExplicitlyAuthorizesBooking(result?: ModelTurnResult): boolean {
+  return result?.callerAction?.speechAct === "AUTHORIZATION"
+    && result.callerAction.authorization?.stateChangingAction === "BOOK_APPOINTMENT"
     && result.callerAction.authorization.isExplicit === true;
 }
 

@@ -1,5 +1,6 @@
 import { CallSession } from "../../calls/callSession.js";
 import { ModelTurnResult } from "../../conversation/modelClient.js";
+import { callerActionExplicitlyAuthorizesBooking } from "../shared/callerActionDecision.js";
 import { ConversationWorkflow, ToolPolicyDecision } from "../shared/workflowTypes.js";
 import { BookAppointmentToolAdapter } from "./bookAppointmentToolAdapter.js";
 
@@ -13,16 +14,8 @@ export const bookAppointmentWorkflow: ConversationWorkflow = {
       return undefined;
     }
 
-    if (isBookingAwaitingConfirmation(session) && !isConfirmedBookingTool(result)) {
-      return {
-        overrideResult: {
-          ...result,
-          intent: "BOOK_APPOINTMENT",
-          reply: confirmationPrompt(session),
-          shouldEndCall: false,
-          toolRequest: undefined
-        }
-      };
+    if (isBookingAwaitingConfirmation(session)) {
+      return bookingConfirmationDecision(session, result);
     }
 
     if (isPrematureBookingHandoff(session, result)) {
@@ -80,6 +73,39 @@ function isBookingIntent(intent: string | undefined): boolean {
 function isBookingAwaitingConfirmation(session: CallSession): boolean {
   return session.workflowState?.workflow === "BOOK_APPOINTMENT"
     && session.workflowState.state === "REQUIRES_CONFIRMATION";
+}
+
+function bookingConfirmationDecision(session: CallSession, result: ModelTurnResult): ToolPolicyDecision | undefined {
+  if (isConfirmedBookingTool(result)) {
+    return undefined;
+  }
+
+  if (callerActionExplicitlyAuthorizesBooking(result)) {
+    return {
+      overrideResult: {
+        ...result,
+        intent: "BOOK_APPOINTMENT",
+        shouldEndCall: false,
+        toolRequest: {
+          name: "BOOK_APPOINTMENT",
+          arguments: {
+            ...result.toolRequest?.arguments,
+            callerConfirmedBooking: true
+          }
+        }
+      }
+    };
+  }
+
+  return {
+    overrideResult: {
+      ...result,
+      intent: "BOOK_APPOINTMENT",
+      reply: confirmationPrompt(session),
+      shouldEndCall: false,
+      toolRequest: undefined
+    }
+  };
 }
 
 function isConfirmedBookingTool(result: ModelTurnResult): boolean {

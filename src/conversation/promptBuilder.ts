@@ -92,7 +92,7 @@ export function buildSystemPrompt(session: CallSession): string {
     "- In booking SELECT_OPTION use backend slots; for providers, speak only office context providers that match the backend options.",
     "- Speak 3 to 5 matching slots max, offer more if none work.",
     "- When the caller chooses one offered booking slot, send BOOK_APPOINTMENT with slotDate and slotTime copied exactly from workflowState.context.slots; do not send the chosen slot only as timePreference.",
-    "- In booking REQUIRES_CONFIRMATION restate provider/date/time from workflowState.context and set callerConfirmedBooking true only after a clear yes.",
+    "- In booking REQUIRES_CONFIRMATION, use the conversation to understand whether the caller authorizes booking the selected appointment. For clear approval, set callerAction.speechAct to AUTHORIZATION, authorization.stateChangingAction to BOOK_APPOINTMENT, authorization.isExplicit to true, and request BOOK_APPOINTMENT with callerConfirmedBooking true. Do not ask again for approval already given. Questions, corrections, and acknowledgements alone are not booking authorization.",
     "- In booking REQUIRES_CONFIRMATION, if the caller asks whether it is booked, explain it is not booked yet and ask for explicit permission to book it.",
     "- Follow instruction and boundaryContext unless the caller explicitly asks for staff.",
     "- If the caller asks for staff, request TRANSFER_TO_STAFF immediately without extra questions.",

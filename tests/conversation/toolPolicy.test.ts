@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { CallSession } from "../../src/calls/callSession.js";
-import { applyWorkflowToolResultPolicies, applyWorkflowTurnPolicies } from "../../src/workflows/shared/workflowRegistry.js";
+import { applyWorkflowToolResultPolicies, applyWorkflowTurnPolicies, prepareWorkflowTool } from "../../src/workflows/shared/workflowRegistry.js";
 
 test("forces fresh appointment lookup for follow-up questions after confirmation", () => {
   const decision = applyWorkflowTurnPolicies(session({
@@ -157,6 +157,89 @@ test("allows final booking request after explicit booking confirmation", () => {
   }), original);
 
   assert.equal(decision, undefined);
+});
+
+test("prepares final booking from model authorization and saved details", () => {
+  const callSession = session({
+    currentIntent: "BOOK_APPOINTMENT",
+    collectedFields: {
+      firstName: "Nancy",
+      lastName: "Jones",
+      dob: "04/01/2000"
+    },
+    workflowState: {
+      contractVersion: 1,
+      workflow: "BOOK_APPOINTMENT",
+      state: "REQUIRES_CONFIRMATION",
+      requiredField: "callerConfirmedBooking",
+      allowedActions: ["BOOK_APPOINTMENT"],
+      context: {
+        bookingReason: "Dental cleaning",
+        providerName: "David Johnson",
+        slotDate: "09/08/2026",
+        slotTime: "04:00 PM"
+      }
+    }
+  });
+  const decision = applyWorkflowTurnPolicies(callSession, {
+    intent: "BOOK_APPOINTMENT",
+    callerAction: {
+      speechAct: "AUTHORIZATION",
+      workflowIntent: "BOOK_APPOINTMENT",
+      requestedAction: "BOOK_APPOINTMENT",
+      authorization: { stateChangingAction: "BOOK_APPOINTMENT", isExplicit: true }
+    },
+    toolRequest: {
+      name: "BOOK_APPOINTMENT",
+      arguments: {}
+    }
+  });
+
+  assert.equal(decision?.overrideResult?.toolRequest?.name, "BOOK_APPOINTMENT");
+  assert.equal(decision?.overrideResult?.toolRequest?.arguments.callerConfirmedBooking, true);
+  assert.equal(decision?.overrideResult?.shouldEndCall, false);
+  const tool = decision?.overrideResult?.toolRequest;
+  assert.ok(tool);
+  const prepared = prepareWorkflowTool(callSession, tool);
+  assert.equal(prepared.arguments.firstName, "Nancy");
+  assert.equal(prepared.arguments.dob, "04/01/2000");
+  assert.equal(prepared.arguments.slotDate, "09/08/2026");
+  assert.equal(prepared.arguments.slotTime, "04:00 PM");
+  assert.equal(prepared.arguments.callerConfirmedBooking, true);
+});
+
+test("does not finalize booking when caller asks a question during booking confirmation", () => {
+  const callSession = session({
+    currentIntent: "BOOK_APPOINTMENT",
+    workflowState: {
+      contractVersion: 1,
+      workflow: "BOOK_APPOINTMENT",
+      state: "REQUIRES_CONFIRMATION",
+      requiredField: "callerConfirmedBooking",
+      allowedActions: ["BOOK_APPOINTMENT"],
+      context: {
+        bookingReason: "Dental cleaning",
+        providerName: "David Johnson",
+        slotDate: "09/08/2026",
+        slotTime: "04:00 PM"
+      }
+    }
+  });
+  const decision = applyWorkflowTurnPolicies(callSession, {
+    intent: "BOOK_APPOINTMENT",
+    callerAction: {
+      speechAct: "QUESTION",
+      workflowIntent: "BOOK_APPOINTMENT",
+      authorization: { stateChangingAction: null, isExplicit: false }
+    },
+    toolRequest: {
+      name: "BOOK_APPOINTMENT",
+      arguments: {}
+    }
+  });
+
+  assert.equal(decision?.overrideResult?.toolRequest, undefined);
+  assert.match(decision?.overrideResult?.reply ?? "", /not booked yet/i);
 });
 
 test("retries appointment lookup instead of transferring when patient corrects identity", () => {
