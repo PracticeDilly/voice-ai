@@ -100,6 +100,65 @@ test("keeps booking workflow instead of premature staff transfer during active b
   });
 });
 
+test("keeps booking open when backend still requires booking confirmation", () => {
+  const decision = applyWorkflowTurnPolicies(session({
+    currentIntent: "BOOK_APPOINTMENT",
+    workflowState: {
+      contractVersion: 1,
+      workflow: "BOOK_APPOINTMENT",
+      state: "REQUIRES_CONFIRMATION",
+      requiredField: "callerConfirmedBooking",
+      allowedActions: ["BOOK_APPOINTMENT"],
+      context: {
+        bookingReason: "dental cleaning",
+        providerName: "David Johnson",
+        slotDate: "09/08/2026",
+        slotTime: "04:00 PM"
+      }
+    }
+  }), {
+    intent: "BOOK_APPOINTMENT",
+    reply: "Your appointment is booked.",
+    shouldEndCall: true
+  });
+
+  assert.equal(decision?.overrideResult?.intent, "BOOK_APPOINTMENT");
+  assert.equal(decision?.overrideResult?.shouldEndCall, false);
+  assert.equal(decision?.overrideResult?.toolRequest, undefined);
+  assert.match(decision?.overrideResult?.reply ?? "", /not booked yet/i);
+  assert.match(decision?.overrideResult?.reply ?? "", /David Johnson/i);
+});
+
+test("allows final booking request after explicit booking confirmation", () => {
+  const original = {
+    intent: "BOOK_APPOINTMENT",
+    toolRequest: {
+      name: "BOOK_APPOINTMENT",
+      arguments: {
+        callerConfirmedBooking: true
+      }
+    }
+  };
+  const decision = applyWorkflowTurnPolicies(session({
+    currentIntent: "BOOK_APPOINTMENT",
+    workflowState: {
+      contractVersion: 1,
+      workflow: "BOOK_APPOINTMENT",
+      state: "REQUIRES_CONFIRMATION",
+      requiredField: "callerConfirmedBooking",
+      allowedActions: ["BOOK_APPOINTMENT"],
+      context: {
+        bookingReason: "dental cleaning",
+        providerName: "David Johnson",
+        slotDate: "09/08/2026",
+        slotTime: "04:00 PM"
+      }
+    }
+  }), original);
+
+  assert.equal(decision, undefined);
+});
+
 test("retries appointment lookup instead of transferring when patient corrects identity", () => {
   const decision = applyWorkflowTurnPolicies(session({
     failureReason: "PATIENT_NOT_FOUND"

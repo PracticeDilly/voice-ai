@@ -13,6 +13,18 @@ export const bookAppointmentWorkflow: ConversationWorkflow = {
       return undefined;
     }
 
+    if (isBookingAwaitingConfirmation(session) && !isConfirmedBookingTool(result)) {
+      return {
+        overrideResult: {
+          ...result,
+          intent: "BOOK_APPOINTMENT",
+          reply: confirmationPrompt(session),
+          shouldEndCall: false,
+          toolRequest: undefined
+        }
+      };
+    }
+
     if (isPrematureBookingHandoff(session, result)) {
       return {
         overrideResult: {
@@ -63,6 +75,29 @@ export const bookAppointmentWorkflow: ConversationWorkflow = {
 
 function isBookingIntent(intent: string | undefined): boolean {
   return typeof intent === "string" && intent.trim().toUpperCase() === "BOOK_APPOINTMENT";
+}
+
+function isBookingAwaitingConfirmation(session: CallSession): boolean {
+  return session.workflowState?.workflow === "BOOK_APPOINTMENT"
+    && session.workflowState.state === "REQUIRES_CONFIRMATION";
+}
+
+function isConfirmedBookingTool(result: ModelTurnResult): boolean {
+  return result.toolRequest?.name === "BOOK_APPOINTMENT"
+    && result.toolRequest.arguments?.callerConfirmedBooking === true;
+}
+
+function confirmationPrompt(session: CallSession): string {
+  const context = session.workflowState?.context;
+  const details = [
+    context?.bookingReason,
+    context?.providerName ? `with ${context.providerName}` : undefined,
+    context?.slotDate ? `on ${context.slotDate}` : undefined,
+    context?.slotTime ? `at ${context.slotTime}` : undefined
+  ].filter((part): part is string => typeof part === "string" && part.trim().length > 0);
+
+  const appointmentDetails = details.length ? ` for ${details.join(" ")}` : "";
+  return `This appointment is not booked yet. Please confirm if you would like me to book it${appointmentDetails}.`;
 }
 
 function isPrematureBookingHandoff(session: CallSession, result: ModelTurnResult): boolean {
