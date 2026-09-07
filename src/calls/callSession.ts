@@ -22,6 +22,17 @@ export interface OfficeContext {
   handoffPolicy?: string;
   emergencyMessage?: string;
   facts?: string[];
+  providers?: OfficeProviderContext[];
+}
+
+export interface OfficeProviderContext {
+  providerId?: number;
+  name?: string;
+  providerName?: string;
+  displayName?: string;
+  displayProvider?: string;
+  fullName?: string;
+  description?: string;
 }
 
 export type PendingActionStatus = "AWAITING_CALLER_CONFIRMATION" | "READY_TO_EXECUTE";

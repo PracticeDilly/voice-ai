@@ -13,6 +13,23 @@ export const bookAppointmentWorkflow: ConversationWorkflow = {
       return undefined;
     }
 
+    if (isPrematureBookingHandoff(result)) {
+      return {
+        overrideResult: {
+          ...result,
+          intent: "BOOK_APPOINTMENT",
+          shouldEndCall: false,
+          toolRequest: {
+            name: "BOOK_APPOINTMENT",
+            arguments: {
+              ...session.collectedFields,
+              ...result.collectedFields
+            }
+          }
+        }
+      };
+    }
+
     if (result.toolRequest || result.intent === "TRANSFER_TO_STAFF") {
       return undefined;
     }
@@ -46,6 +63,19 @@ export const bookAppointmentWorkflow: ConversationWorkflow = {
 
 function isBookingIntent(intent: string | undefined): boolean {
   return typeof intent === "string" && intent.trim().toUpperCase() === "BOOK_APPOINTMENT";
+}
+
+function isPrematureBookingHandoff(result: ModelTurnResult): boolean {
+  if (result.toolRequest?.name !== "TRANSFER_TO_STAFF" && result.intent !== "TRANSFER_TO_STAFF") {
+    return false;
+  }
+
+  if (result.callerAction?.requestedAction === "TRANSFER_TO_STAFF"
+    || result.callerAction?.workflowIntent === "TRANSFER_TO_STAFF") {
+    return false;
+  }
+
+  return hasBookingField(result.collectedFields);
 }
 
 function hasBookingField(fields: Record<string, unknown> | undefined): boolean {

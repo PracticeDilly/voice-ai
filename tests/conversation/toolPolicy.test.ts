@@ -42,6 +42,37 @@ test("does not force lookup when fresh appointment data is already present", () 
   assert.equal(result, original);
 });
 
+test("keeps booking workflow instead of premature staff transfer for booking details", () => {
+  const decision = applyWorkflowTurnPolicies(session({
+    currentIntent: "BOOK_APPOINTMENT",
+    collectedFields: {
+      firstName: "Nancy",
+      lastName: "Jones",
+      dob: "04/01/2000"
+    }
+  }), {
+    intent: "TRANSFER_TO_STAFF",
+    shouldEndCall: true,
+    collectedFields: {
+      bookingReason: "teeth whitening"
+    },
+    toolRequest: {
+      name: "TRANSFER_TO_STAFF",
+      arguments: {}
+    }
+  });
+
+  assert.equal(decision?.overrideResult?.intent, "BOOK_APPOINTMENT");
+  assert.equal(decision?.overrideResult?.shouldEndCall, false);
+  assert.equal(decision?.overrideResult?.toolRequest?.name, "BOOK_APPOINTMENT");
+  assert.deepEqual(decision?.overrideResult?.toolRequest?.arguments, {
+    firstName: "Nancy",
+    lastName: "Jones",
+    dob: "04/01/2000",
+    bookingReason: "teeth whitening"
+  });
+});
+
 test("retries appointment lookup instead of transferring when patient corrects identity", () => {
   const decision = applyWorkflowTurnPolicies(session({
     failureReason: "PATIENT_NOT_FOUND"

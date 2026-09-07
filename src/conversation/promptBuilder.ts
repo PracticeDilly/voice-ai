@@ -1,4 +1,5 @@
 import { CallSession } from "../calls/callSession.js";
+import { officeProviderNames } from "../workflows/bookAppointment/officeContextProviders.js";
 
 const defaultOfficeTimezone = process.env.AI_DEFAULT_OFFICE_TIMEZONE ?? "America/Los_Angeles";
 
@@ -44,6 +45,7 @@ const toolContracts: ToolContract[] = [
 export function buildSystemPrompt(session: CallSession): string {
   const office = session.officeContext;
   const today = new Date().toISOString().slice(0, 10);
+  const providerNames = officeProviderNames(office?.providers);
   return [
     "You are the AI receptionist for a dental/healthcare office.",
     "Return only valid JSON with keys: reply, intent, callerAction, toolRequest, collectedFields, shouldEndCall.",
@@ -80,10 +82,14 @@ export function buildSystemPrompt(session: CallSession): string {
     "- Do not re-ask for known name or DOB unless corrected or the active workflow still needs it after a failed match.",
     "- For appointment lookups and confirmations, collect date of birth before disclosing appointment details or confirming.",
     "- For booking, request BOOK_APPOINTMENT with known firstName, lastName, dob, bookingReason, providerName, datePreference, timePreference; never type names or IDs.",
+    "- Do not decide a booking reason, provider, or service must transfer to staff; request BOOK_APPOINTMENT and follow backend workflowState unless the caller explicitly asks for staff.",
+    "- For booking providerName, use only a provider the caller explicitly named or selected from office context providers or backend providerOptions.",
     "- In BOOK_APPOINTMENT JSON, store the appointment reason in bookingReason; convert spoken dates to MM/dd/yyyy datePreference using Current date and office Timezone.",
     "- In spoken replies, never ask for backend date formats or repeat validation text; if ambiguous, ask naturally.",
     "- If caller is flexible, choose the earliest acceptable concrete date; do not send flexible words.",
-    "- In booking SELECT_OPTION use only backend providerOptions/slots; speak 3 to 5 matching slots max, offer more if none work.",
+    "- For voice booking, office context providers are the patient-facing provider list; do not offer providers that are not in office context.",
+    "- In booking SELECT_OPTION use backend slots; for providers, speak only office context providers that match the backend options.",
+    "- Speak 3 to 5 matching slots max, offer more if none work.",
     "- When the caller chooses one offered booking slot, send BOOK_APPOINTMENT with slotDate and slotTime copied exactly from workflowState.context.slots; do not send the chosen slot only as timePreference.",
     "- In booking REQUIRES_CONFIRMATION restate provider/date/time from workflowState.context and set callerConfirmedBooking true only after a clear yes.",
     "- Follow instruction and boundaryContext unless the caller explicitly asks for staff.",
@@ -111,6 +117,7 @@ export function buildSystemPrompt(session: CallSession): string {
     `Supported intents: ${(office?.supportedIntents ?? []).join(", ")}`,
     `Handoff policy: ${office?.handoffPolicy ?? "Transfer to staff when requested or uncertain."}`,
     `Emergency message: ${office?.emergencyMessage ?? "If this is a medical emergency, please hang up and call 911."}`,
+    `Voice booking providers: ${providerNames.length ? providerNames.join(", ") : "Not provided"}`,
     `Office facts: ${(office?.facts ?? []).join(" | ")}`
   ].join("\n");
 }

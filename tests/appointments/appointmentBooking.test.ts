@@ -22,10 +22,69 @@ test("prepares booking request with caller number and collected conversational f
   assert.equal(prepared.arguments.firstName, "Priya");
   assert.equal(prepared.arguments.dob, "1990-04-15");
   assert.equal(prepared.arguments.bookingReason, "tooth pain");
-  assert.equal(prepared.arguments.providerName, "Dr. Shah");
+  assert.equal(prepared.arguments.providerName, undefined);
   assert.equal(prepared.arguments.datePreference, "09/04/2026");
   assert.equal(prepared.arguments.timePreference, "morning");
   assert.equal(prepared.arguments.fromNumber, "+15551234567");
+});
+
+test("keeps initial provider name when it matches office context", () => {
+  const callSession = session();
+  callSession.officeContext = {
+    officeCode: "OFC001",
+    timezone: "America/Los_Angeles",
+    providers: [
+      { providerName: "Dr. Shah" }
+    ]
+  };
+
+  const prepared = new BookAppointmentToolAdapter().prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: {
+      providerName: "Dr. Shah"
+    }
+  });
+
+  assert.equal(prepared.arguments.providerName, "Dr. Shah");
+});
+
+test("uses single office context provider for initial booking request", () => {
+  const callSession = session();
+  callSession.officeContext = {
+    officeCode: "OFC001",
+    timezone: "America/Los_Angeles",
+    providers: [
+      { displayProvider: "Dr. Shah" }
+    ]
+  };
+
+  const prepared = new BookAppointmentToolAdapter().prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: {
+      bookingReason: "tooth pain",
+      datePreference: "09/04/2026"
+    }
+  });
+
+  assert.equal(prepared.arguments.providerName, "Dr. Shah");
+});
+
+test("keeps provider name after backend starts booking workflow", () => {
+  const callSession = session();
+  callSession.workflowState = {
+    contractVersion: 1,
+    workflow: "BOOK_APPOINTMENT",
+    state: "NEEDS_PROVIDER_SELECTION"
+  };
+
+  const prepared = new BookAppointmentToolAdapter().prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: {
+      providerName: "Dr. Shah"
+    }
+  });
+
+  assert.equal(prepared.arguments.providerName, "Dr. Shah");
 });
 
 test("normalizes model booking date preferences", () => {
