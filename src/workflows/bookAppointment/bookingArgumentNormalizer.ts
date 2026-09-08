@@ -2,7 +2,6 @@ import { CallSession } from "../../calls/callSession.js";
 import { normalizeBookingDatePreference } from "./bookingDatePreference.js";
 import {
   normalizeProviderText,
-  providerNameMatchesOfficeContext,
   singleOfficeContextProviderName
 } from "./officeContextProviders.js";
 
@@ -11,6 +10,7 @@ const bookingFieldNames = [
   "lastName",
   "dob",
   "bookingReason",
+  "appointmentTypeId",
   "providerName",
   "datePreference",
   "timePreference",
@@ -28,7 +28,6 @@ export function normalizeBookingArguments(
     copyKnownValue(normalized, fieldName, toolArguments?.[fieldName] ?? session.collectedFields[fieldName]);
   }
   applySingleOfficeContextProvider(normalized, session);
-  removeUntrustedInitialProviderName(normalized, session);
 
   copyKnownValue(normalized, "fromNumber", normalized.fromNumber ?? session.fromNumber);
 
@@ -53,22 +52,12 @@ function copyKnownValue(target: Record<string, unknown>, fieldName: string, valu
 }
 
 function applySingleOfficeContextProvider(target: Record<string, unknown>, session: CallSession): void {
-  if (hasValue(target.providerName) || session.workflowState?.workflow === "BOOK_APPOINTMENT") {
+  if (hasValue(target.providerName)) {
     return;
   }
 
   const providerName = singleOfficeContextProviderName(session.officeContext?.providers);
   copyKnownValue(target, "providerName", providerName);
-}
-
-function removeUntrustedInitialProviderName(target: Record<string, unknown>, session: CallSession): void {
-  if (session.workflowState?.workflow === "BOOK_APPOINTMENT") {
-    return;
-  }
-
-  if (!providerNameMatchesOfficeContext(target.providerName, session.officeContext?.providers)) {
-    delete target.providerName;
-  }
 }
 
 function applySelectedSlotFromTimePreference(target: Record<string, unknown>, session: CallSession): void {

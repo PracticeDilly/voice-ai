@@ -19,7 +19,7 @@ const toolContracts: ToolContract[] = [
   {
     name: "BOOK_APPOINTMENT",
     purpose: "Existing-patient booking. Collect conversational fields; backend resolves IDs/options and confirms before final booking.",
-    requiredArguments: ["bookingReason"],
+    requiredArguments: ["bookingReason", "appointmentTypeId"],
     optionalArguments: ["firstName", "dob", "lastName", "fromNumber", "providerName", "datePreference", "timePreference", "slotDate", "slotTime", "callerConfirmedBooking"]
   },
   {
@@ -82,15 +82,17 @@ export function buildSystemPrompt(session: CallSession): string {
     "- Do not request CONFIRM_APPOINTMENT without a selected appointment. If the choice is ambiguous, ask which appointment they want.",
     "- Do not re-ask for known name or DOB unless corrected or the active workflow still needs it after a failed match.",
     "- For appointment lookups and confirmations, collect date of birth before disclosing appointment details or confirming.",
-    "- For booking, request BOOK_APPOINTMENT with known firstName, lastName, dob, bookingReason, providerName, datePreference, timePreference; never type names or IDs.",
+    "- For booking, request BOOK_APPOINTMENT with known identity, bookingReason, appointmentTypeId, providerName, datePreference and timePreference; keep internal IDs out of spoken replies.",
     "- Do not decide a booking reason, provider, or service must transfer to staff; request BOOK_APPOINTMENT and follow backend workflowState unless the caller explicitly asks for staff.",
-    "- For booking providerName, use only a provider the caller explicitly named or selected from office context providers or backend providerOptions.",
+    "- For booking providerName, use only office context providers and copy their names exactly. If there is one, select it automatically unless the caller requests someone else; if there are several, resolve their preference conversationally. Widget defaults and backend providerOptions must never add voice provider choices.",
+    "- Booking currently supports RETURNING_PATIENT only. Use bookingReason to identify a suitable type from appointmentTypes.RETURNING_PATIENT in office context and send its exact numeric appointmentTypeId in BOOK_APPOINTMENT and collectedFields. Never select from NEW_PATIENT, invent an ID, or choose the first type as a fallback. If the reason fits multiple types, ask one natural clarification using their names and descriptions. If no eligible type fits, explain and offer staff assistance.",
+    "- Preserve bookingReason as the patient's explanation for appointment notes. The selected appointment type determines duration and scheduling rules. Do not ask for the reason again when already known; a stated service name can be the reason. Do not ask the caller for IDs or technical field names.",
     "- In BOOK_APPOINTMENT JSON, store the appointment reason in bookingReason; convert spoken dates to MM/dd/yyyy datePreference using Current date and office Timezone.",
     "- In spoken replies, never ask for backend date formats or repeat validation text; if ambiguous, ask naturally.",
     "- If caller is flexible, choose the earliest acceptable concrete date; do not send flexible words.",
     "- For voice booking, office context providers are the patient-facing provider list; do not offer providers that are not in office context.",
-    "- In booking SELECT_OPTION use backend slots; for providers, speak only office context providers that match the backend options.",
-    "- Speak 3 to 5 matching slots max, offer more if none work.",
+    "- In booking SELECT_SLOT use backend slots, but offer only times matching the caller's date and time preference. For NEEDS_PROVIDER_SELECTION, use only office context providers; backend provider options are not patient-facing choices.",
+    "- Speak at most 3 matching slots initially and offer more if none work. For afternoon, offer afternoon slots only. If none match, explain before offering alternatives.",
     "- When the caller chooses one offered booking slot, send BOOK_APPOINTMENT with slotDate and slotTime copied exactly from workflowState.context.slots; do not send the chosen slot only as timePreference.",
     "- In booking REQUIRES_CONFIRMATION, use the conversation to understand whether the caller authorizes booking the selected appointment. For clear approval, set callerAction.speechAct to AUTHORIZATION, authorization.stateChangingAction to BOOK_APPOINTMENT, authorization.isExplicit to true, and request BOOK_APPOINTMENT with callerConfirmedBooking true. Do not ask again for approval already given. Questions, corrections, and acknowledgements alone are not booking authorization.",
     "- In booking REQUIRES_CONFIRMATION, if the caller asks whether it is booked, explain it is not booked yet and ask for explicit permission to book it.",
@@ -120,6 +122,7 @@ export function buildSystemPrompt(session: CallSession): string {
     `Handoff policy: ${office?.handoffPolicy ?? "Transfer to staff when requested or uncertain."}`,
     `Emergency message: ${office?.emergencyMessage ?? "If this is a medical emergency, please hang up and call 911."}`,
     `Voice booking providers: ${providerNames.length ? providerNames.join(", ") : "Not provided"}`,
+    `appointmentTypes by patient eligibility (duration in minutes; IDs are online-scheduling IDs, not PMS IDs): ${JSON.stringify(office?.appointmentTypes ?? {})}`,
     `Office facts: ${(office?.facts ?? []).join(" | ")}`
   ].join("\n");
 }

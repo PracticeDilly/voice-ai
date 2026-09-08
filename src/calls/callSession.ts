@@ -23,6 +23,14 @@ export interface OfficeContext {
   emergencyMessage?: string;
   facts?: string[];
   providers?: OfficeProviderContext[];
+  appointmentTypes?: Partial<Record<"NEW_PATIENT" | "RETURNING_PATIENT", OfficeAppointmentTypeContext[]>>;
+}
+
+export interface OfficeAppointmentTypeContext {
+  appointmentTypeId: number;
+  type: string;
+  description?: string;
+  duration: number;
 }
 
 export interface OfficeProviderContext {

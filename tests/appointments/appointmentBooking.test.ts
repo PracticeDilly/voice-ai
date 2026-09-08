@@ -22,7 +22,7 @@ test("prepares booking request with caller number and collected conversational f
   assert.equal(prepared.arguments.firstName, "Priya");
   assert.equal(prepared.arguments.dob, "1990-04-15");
   assert.equal(prepared.arguments.bookingReason, "tooth pain");
-  assert.equal(prepared.arguments.providerName, undefined);
+  assert.match(new BookAppointmentToolAdapter().validateTool(callSession, prepared) ?? "", /office context only/);
   assert.equal(prepared.arguments.datePreference, "09/04/2026");
   assert.equal(prepared.arguments.timePreference, "morning");
   assert.equal(prepared.arguments.fromNumber, "+15551234567");
@@ -69,7 +69,7 @@ test("uses single office context provider for initial booking request", () => {
   assert.equal(prepared.arguments.providerName, "Dr. Shah");
 });
 
-test("keeps provider name after backend starts booking workflow", () => {
+test("retains an invalid provider for validation instead of silently substituting a default", () => {
   const callSession = session();
   callSession.workflowState = {
     contractVersion: 1,
@@ -170,6 +170,38 @@ test("maps selected booking time preference to backend slot fields", () => {
 
   assert.equal(prepared.arguments.slotDate, "09/08/2026");
   assert.equal(prepared.arguments.slotTime, "10:10 AM");
+});
+
+test("validates returning-patient type and provider on active booking turns", () => {
+  const callSession = session();
+  callSession.officeContext = {
+    officeCode: "OFC001", timezone: "America/Los_Angeles",
+    providers: [{ name: "Dr. Shah" }],
+    appointmentTypes: {
+      RETURNING_PATIENT: [{ appointmentTypeId: 12, type: "Cleaning", duration: 60 }],
+      NEW_PATIENT: [{ appointmentTypeId: 13, type: "Initial exam", duration: 90 }]
+    }
+  };
+  callSession.workflowState = { contractVersion: 1, workflow: "BOOK_APPOINTMENT", state: "SELECT_SLOT" };
+  callSession.collectedFields = { appointmentTypeId: 12, bookingReason: "Cleaning and sensitivity" };
+  const adapter = new BookAppointmentToolAdapter();
+  const prepared = adapter.prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT", arguments: { patientId: 999, pmsProviderId: 999 }
+  });
+  assert.equal(prepared.arguments.appointmentTypeId, 12);
+  assert.equal(prepared.arguments.bookingReason, "Cleaning and sensitivity");
+  assert.equal(prepared.arguments.providerName, "Dr. Shah");
+  assert.equal(prepared.arguments.patientId, undefined);
+  assert.equal(prepared.arguments.pmsProviderId, undefined);
+  assert.equal(adapter.validateTool(callSession, prepared), undefined);
+  for (const appointmentTypeId of [13, 99, "12"]) {
+    assert.match(adapter.validateTool(callSession, {
+      ...prepared, arguments: { ...prepared.arguments, appointmentTypeId }
+    }) ?? "", /RETURNING_PATIENT/);
+  }
+  assert.match(adapter.validateTool(callSession, {
+    ...prepared, arguments: { ...prepared.arguments, providerName: "Widget-only provider" }
+  }) ?? "", /office context only/);
 });
 
 function session(): CallSession {

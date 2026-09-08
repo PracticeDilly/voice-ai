@@ -12,7 +12,21 @@ test("builds a compact workflow-oriented prompt", () => {
   assert.match(prompt, /Use TRANSFER_TO_STAFF for every staff handoff/);
   assert.doesNotMatch(prompt, /CREATE_HANDOFF_REQUEST/);
   assert.doesNotMatch(prompt, /GETevant|reldo/);
-  assert.ok(prompt.length < 5500, `prompt is too long: ${prompt.length}`);
+  assert.ok(prompt.length < 8500, `prompt is too long: ${prompt.length}`);
+});
+
+test("includes appointment type eligibility and context-only provider instructions", () => {
+  const callSession = session();
+  callSession.officeContext!.appointmentTypes = {
+    RETURNING_PATIENT: [{ appointmentTypeId: 12, type: "Cleaning", duration: 60 }],
+    NEW_PATIENT: [{ appointmentTypeId: 13, type: "Initial exam", duration: 90 }]
+  };
+  const prompt = buildSystemPrompt(callSession);
+  assert.ok(prompt.includes(JSON.stringify(callSession.officeContext!.appointmentTypes)));
+  assert.match(prompt, /Never select from NEW_PATIENT/);
+  assert.match(prompt, /copy their names exactly/);
+  assert.match(prompt, /Preserve bookingReason/);
+  assert.doesNotMatch(prompt, /selected from office context providers or backend providerOptions/);
 });
 
 function session(): CallSession {
