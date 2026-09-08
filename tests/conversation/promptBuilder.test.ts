@@ -12,7 +12,9 @@ test("builds a compact workflow-oriented prompt", () => {
   assert.match(prompt, /Use TRANSFER_TO_STAFF for every staff handoff/);
   assert.doesNotMatch(prompt, /CREATE_HANDOFF_REQUEST/);
   assert.doesNotMatch(prompt, /GETevant|reldo/);
-  assert.ok(prompt.length < 8500, `prompt is too long: ${prompt.length}`);
+  assert.match(prompt, /"requiredArguments":\["firstName","dob","bookingReason","appointmentTypeId"\]/);
+  assert.match(prompt, /Store date of birth as dob, never dateOfBirth/);
+  assert.ok(prompt.length < 11000, `prompt is too long: ${prompt.length}`);
 });
 
 test("includes appointment type eligibility and context-only provider instructions", () => {

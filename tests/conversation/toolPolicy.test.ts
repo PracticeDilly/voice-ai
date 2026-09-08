@@ -122,11 +122,8 @@ test("keeps booking open when backend still requires booking confirmation", () =
     shouldEndCall: true
   });
 
-  assert.equal(decision?.overrideResult?.intent, "BOOK_APPOINTMENT");
-  assert.equal(decision?.overrideResult?.shouldEndCall, false);
-  assert.equal(decision?.overrideResult?.toolRequest, undefined);
-  assert.match(decision?.overrideResult?.reply ?? "", /not booked yet/i);
-  assert.match(decision?.overrideResult?.reply ?? "", /David Johnson/i);
+  assert.deepEqual(decision?.repromptContext, { type: "BOOKING_CONFIRMATION" });
+  assert.equal(decision?.overrideResult, undefined);
 });
 
 test("allows final booking request after explicit booking confirmation", () => {
@@ -239,7 +236,7 @@ test("does not finalize booking when caller asks a question during booking confi
   });
 
   assert.equal(decision?.overrideResult?.toolRequest, undefined);
-  assert.match(decision?.overrideResult?.reply ?? "", /not booked yet/i);
+  assert.deepEqual(decision?.repromptContext, { type: "BOOKING_CONFIRMATION" });
 });
 
 test("retries appointment lookup instead of transferring when patient corrects identity", () => {

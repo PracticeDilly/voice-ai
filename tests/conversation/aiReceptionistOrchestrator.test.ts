@@ -4,6 +4,110 @@ import { CallSession, CallSessionStore } from "../../src/calls/callSession.js";
 import { AiReceptionistOrchestrator } from "../../src/conversation/aiReceptionistOrchestrator.js";
 import { ModelTurnResult } from "../../src/conversation/modelClient.js";
 import { ToolRequest, ToolResult } from "../../src/backend/springBootClient.js";
+import { BookingWorkflowError } from "../../src/workflows/bookAppointment/bookingModelContract.js";
+
+test("executes a booking tool returned by the follow-up model instead of leaving the caller waiting", async () => {
+  const { orchestrator, session, executed } = bookingHarness([
+    { intent: "BOOK_APPOINTMENT", toolRequest: { name: "BOOK_APPOINTMENT", arguments: { dob: "04/01/2000" } } },
+    { intent: "BOOK_APPOINTMENT", reply: "Would 2 PM work?" }
+  ], ["NEEDS_PATIENT_IDENTITY", "SELECT_SLOT"]);
+  const outcome = await orchestrator.handleCallerText(session, "Book a cleaning", { recordCallerTurn: false });
+  assert.equal(executed.length, 2);
+  assert.equal(executed[1].arguments?.dob, "04/01/2000");
+  assert.equal(executed[1].arguments?.callerConfirmedBooking, false);
+  assert.equal(outcome.reply, "Would 2 PM work?");
+  assert.equal(outcome.shouldTransferToStaff, false);
+});
+
+test("uses model wording at confirmation without another executable model turn", async () => {
+  const { orchestrator, session, executed } = bookingHarness([], ["REQUIRES_CONFIRMATION"]);
+  const outcome = await orchestrator.handleCallerText(session, "2 PM works", { recordCallerTurn: false });
+  assert.equal(executed.length, 1);
+  assert.equal(outcome.reply, "Shall I reserve that appointment for you?");
+  assert.notEqual(session.collectedFields.callerConfirmedBooking, true);
+});
+
+test("does not execute another booking after completion", async () => {
+  const { orchestrator, session, executed } = bookingHarness([
+    { intent: "BOOK_APPOINTMENT", reply: "Your appointment is booked.", toolRequest: { name: "BOOK_APPOINTMENT", arguments: {} } }
+  ], ["COMPLETED"]);
+  await orchestrator.handleCallerText(session, "Yes", { recordCallerTurn: false });
+  assert.equal(executed.length, 1);
+});
+
+test("books once on the next caller approval without asking for confirmation again", async () => {
+  const { orchestrator, session, executed } = bookingHarness([], ["REQUIRES_CONFIRMATION", "COMPLETED"]);
+  let callerTurn = 0;
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      callerTurn += 1;
+      return { intent: "BOOK_APPOINTMENT", toolRequest: {
+        name: "BOOK_APPOINTMENT", arguments: { callerConfirmedBooking: callerTurn === 2 }
+      } };
+    },
+    async continueWithToolResult() {
+      return { intent: "BOOK_APPOINTMENT", reply: "Your appointment is booked." };
+    },
+    async bookingResponse() {
+      return { intent: "BOOK_APPOINTMENT", reply: "Shall I reserve that appointment for you?", shouldEndCall: false };
+    }
+  } });
+  const selection = await orchestrator.handleCallerText(session, "2 PM", { recordCallerTurn: false });
+  assert.equal(selection.reply, "Shall I reserve that appointment for you?");
+  const confirmation = await orchestrator.handleCallerText(session, "Yes, please", { recordCallerTurn: false });
+  assert.equal(executed.length, 2);
+  assert.equal(executed[1].arguments?.callerConfirmedBooking, true);
+  assert.equal(confirmation.reply, "Your appointment is booked.");
+  assert.equal(confirmation.shouldTransferToStaff, false);
+});
+
+test("bounds repeated follow-up tool requests", async () => {
+  const followup = { intent: "BOOK_APPOINTMENT", toolRequest: { name: "BOOK_APPOINTMENT", arguments: {} } };
+  const { orchestrator, session, executed } = bookingHarness([followup, followup, followup], ["NEEDS_PATIENT_IDENTITY"]);
+  const outcome = await orchestrator.handleCallerText(session, "Book it", { recordCallerTurn: false });
+  assert.equal(executed.length, 3);
+  assert.equal(outcome.shouldTransferToStaff, true);
+});
+
+test("contract repair exhaustion hands off without the booking policy issuing another tool", async () => {
+  const { orchestrator, session, executed } = bookingHarness([], []);
+  session.workflowState = { contractVersion: 1, workflow: "BOOK_APPOINTMENT", state: "NEEDS_PATIENT_IDENTITY" };
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() { throw new BookingWorkflowError("invalid model output"); },
+    async bookingResponse() { return { reply: "Our team can help you finish arranging this visit." }; }
+  } });
+  const outcome = await orchestrator.handleCallerText(session, "Book it", { recordCallerTurn: false });
+  assert.equal(executed.length, 0);
+  assert.equal(outcome.shouldTransferToStaff, true);
+});
+
+function bookingHarness(followups: ModelTurnResult[], states: string[]) {
+  const sessions = new CallSessionStore();
+  const session = sessions.create({ callSid: "CA-booking-followup", officeCode: "TEST" });
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  const executed: ToolRequest[] = [];
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() { return { intent: "BOOK_APPOINTMENT", toolRequest: { name: "BOOK_APPOINTMENT", arguments: {} } }; },
+    async continueWithToolResult() {
+      assert.ok(followups.length, "unexpected follow-up model call");
+      return followups.shift();
+    },
+    async bookingResponse(_session: CallSession, purpose: string) {
+      return { intent: purpose === "HANDOFF" ? "TRANSFER_TO_STAFF" : "BOOK_APPOINTMENT",
+        reply: purpose === "HANDOFF" ? "Our team can help with this visit." : "Shall I reserve that appointment for you?",
+        shouldEndCall: purpose === "HANDOFF" };
+    }
+  } });
+  Object.defineProperty(orchestrator, "toolExecutor", { value: {
+    async execute(_session: CallSession, tool: ToolRequest) {
+      executed.push(tool);
+      return { name: tool.name, ok: true, workflowState: {
+        contractVersion: 1, workflow: "BOOK_APPOINTMENT", state: states[Math.min(executed.length - 1, states.length - 1)]
+      } };
+    }
+  } });
+  return { orchestrator, session, executed };
+}
 
 test("returns a deterministic confirmation prompt when a selected appointment still needs caller approval", async () => {
   const sessions = new CallSessionStore();

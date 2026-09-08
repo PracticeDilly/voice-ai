@@ -19,8 +19,8 @@ const toolContracts: ToolContract[] = [
   {
     name: "BOOK_APPOINTMENT",
     purpose: "Existing-patient booking. Collect conversational fields; backend resolves IDs/options and confirms before final booking.",
-    requiredArguments: ["bookingReason", "appointmentTypeId"],
-    optionalArguments: ["firstName", "dob", "lastName", "fromNumber", "providerName", "datePreference", "timePreference", "slotDate", "slotTime", "callerConfirmedBooking"]
+    requiredArguments: ["firstName", "dob", "bookingReason", "appointmentTypeId"],
+    optionalArguments: ["lastName", "fromNumber", "providerName", "datePreference", "timePreference", "slotDate", "slotTime", "callerConfirmedBooking"]
   },
   {
     name: "CONFIRM_APPOINTMENT",
@@ -82,7 +82,8 @@ export function buildSystemPrompt(session: CallSession): string {
     "- Do not request CONFIRM_APPOINTMENT without a selected appointment. If the choice is ambiguous, ask which appointment they want.",
     "- Do not re-ask for known name or DOB unless corrected or the active workflow still needs it after a failed match.",
     "- For appointment lookups and confirmations, collect date of birth before disclosing appointment details or confirming.",
-    "- For booking, request BOOK_APPOINTMENT with known identity, bookingReason, appointmentTypeId, providerName, datePreference and timePreference; keep internal IDs out of spoken replies.",
+    "- For booking, use exact fields firstName, lastName, dob, bookingReason, appointmentTypeId, providerName, datePreference, timePreference, slotDate, slotTime, callerConfirmedBooking in both collectedFields and tool arguments. Store date of birth as dob, never dateOfBirth. Preserve known values; never ask the patient to repair JSON or repeat data to fix a field-name error.",
+    "- Request BOOK_APPOINTMENT once firstName, dob, bookingReason and an eligible appointmentTypeId are known. Do not promise a lookup without requesting the tool. A response needing identity is not an availability result; never describe it as no openings or a slot lookup failure.",
     "- Do not decide a booking reason, provider, or service must transfer to staff; request BOOK_APPOINTMENT and follow backend workflowState unless the caller explicitly asks for staff.",
     "- For booking providerName, use only office context providers and copy their names exactly. If there is one, select it automatically unless the caller requests someone else; if there are several, resolve their preference conversationally. Widget defaults and backend providerOptions must never add voice provider choices.",
     "- Booking currently supports RETURNING_PATIENT only. Use bookingReason to identify a suitable type from appointmentTypes.RETURNING_PATIENT in office context and send its exact numeric appointmentTypeId in BOOK_APPOINTMENT and collectedFields. Never select from NEW_PATIENT, invent an ID, or choose the first type as a fallback. If the reason fits multiple types, ask one natural clarification using their names and descriptions. If no eligible type fits, explain and offer staff assistance.",
@@ -100,7 +101,7 @@ export function buildSystemPrompt(session: CallSession): string {
     "- If the caller asks for staff, request TRANSFER_TO_STAFF immediately without extra questions.",
     "",
     "Tool contracts:",
-    JSON.stringify(toolContracts.map(({ name }) => name)),
+    JSON.stringify(toolContracts),
     "Use TRANSFER_TO_STAFF for every staff handoff. Do not create async staff follow-up requests.",
     "",
     "Conversation style:",

@@ -5,6 +5,9 @@ import { CallSession } from "../calls/callSession.js";
 import { ToolPolicyBoundaryContext } from "../workflows/shared/workflowTypes.js";
 import type { CallerActionDecision } from "../workflows/shared/callerActionDecision.js";
 import { buildSystemPrompt } from "./promptBuilder.js";
+import { BookingWorkflowError, bookingModelContractError } from "../workflows/bookAppointment/bookingModelContract.js";
+import { bookingResponseContext, bookingResponseInstruction, BookingResponsePurpose } from "../workflows/bookAppointment/bookingResponseContext.js";
+import { logger } from "../utils/logger.js";
 
 export interface ModelTurnResult {
   reply?: string;
@@ -75,6 +78,25 @@ export class ModelClient {
     });
   }
 
+  async bookingResponse(session: CallSession, purpose: BookingResponsePurpose): Promise<ModelTurnResult> {
+    const content = await this.requestModelContent(session, {
+      instruction: bookingResponseInstruction,
+      responseContext: bookingResponseContext(session, purpose),
+      conversationHistory: session.transcript.slice(-12)
+    });
+    let reply: unknown;
+    try {
+      reply = JSON.parse(content).reply;
+    } catch {
+      throw new BookingWorkflowError("Invalid booking response JSON");
+    }
+    if (typeof reply !== "string" || !reply.trim()) {
+      throw new BookingWorkflowError("Missing booking response");
+    }
+    // Wording is model-owned; this response-only call cannot change execution state.
+    return { reply, intent: purpose === "HANDOFF" ? "TRANSFER_TO_STAFF" : "BOOK_APPOINTMENT", shouldEndCall: purpose === "HANDOFF" };
+  }
+
   async summarizeCall(session: CallSession): Promise<ModelCallSummary> {
     const response = await this.client.chat.completions.create({
       model: config.OPENAI_MODEL,
@@ -133,7 +155,7 @@ export class ModelClient {
     }
   }
 
-  private async createModelTurn(session: CallSession, payload: Record<string, unknown>): Promise<ModelTurnResult> {
+  private async requestModelContent(session: CallSession, payload: Record<string, unknown>): Promise<string> {
     const response = await this.client.chat.completions.create({
       model: config.OPENAI_MODEL,
       temperature: 0.2,
@@ -152,8 +174,30 @@ export class ModelClient {
       timeout: config.AI_MODEL_TIMEOUT_MS
     });
 
-    const content = response.choices[0]?.message?.content ?? "{}";
-    return this.parseModelResult(content);
+    return response.choices[0]?.message?.content ?? "{}";
+  }
+
+  private async createModelTurn(session: CallSession, payload: Record<string, unknown>, repairAttempt = 0): Promise<ModelTurnResult> {
+    const content = await this.requestModelContent(session, payload);
+    const result = this.parseModelResult(content);
+    const contractError = bookingModelContractError(session, result);
+    if (!contractError) return result;
+
+    logger.warn("Booking model contract rejected", {
+      callSid: session.callSid,
+      repairAttempt,
+      argumentFields: Object.keys(result.toolRequest?.arguments ?? {}),
+      collectedFieldNames: Object.keys(result.collectedFields ?? {})
+    });
+    if (repairAttempt === 0) {
+      return this.createModelTurn(session, {
+        ...payload,
+        rejectedModelResult: result,
+        validationError: contractError,
+        instruction: "Correct your previous JSON using the tool contract and known conversation context. Recover known values without asking the caller to repeat them. If information is genuinely missing or ambiguous, ask naturally instead of requesting a tool."
+      }, repairAttempt + 1);
+    }
+    throw new BookingWorkflowError("Booking model contract remained invalid after correction");
   }
 
   private findLastAssistantReply(session: CallSession): string | undefined {

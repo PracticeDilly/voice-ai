@@ -12,6 +12,8 @@ import { logger } from "../utils/logger.js";
 import { applyWorkflowToolResultPolicies, applyWorkflowTurnPolicies } from "../workflows/shared/workflowRegistry.js";
 import { extractWorkflowEnvelope } from "../workflows/workflowState.js";
 import { ModelClient, ModelTurnResult } from "./modelClient.js";
+import { BookingWorkflowError } from "../workflows/bookAppointment/bookingModelContract.js";
+import { prepareBookingFollowup } from "../workflows/bookAppointment/bookingFollowup.js";
 
 export interface ConversationTurnOutcome {
   reply: string;
@@ -50,6 +52,31 @@ export class AiReceptionistOrchestrator {
   }
 
   async handleCallerText(
+    session: CallSession,
+    callerText: string,
+    options: { recordCallerTurn?: boolean } = {}
+  ): Promise<ConversationTurnOutcome> {
+    try {
+      return await this.processCallerText(session, callerText, options);
+    } catch (error) {
+      if (!(error instanceof BookingWorkflowError)) throw error;
+      return this.bookingHandoff(session, error);
+    }
+  }
+
+  private async bookingHandoff(session: CallSession, error: BookingWorkflowError): Promise<ConversationTurnOutcome> {
+    logger.warn("Booking execution stopped; transferring to staff", { callSid: session.callSid, reason: error.message });
+    const reply = (await this.modelClient.bookingResponse(session, "HANDOFF")).reply!;
+    return {
+      reply,
+      shouldEndSession: true,
+      shouldTransferToStaff: true,
+      assistantMetadata: { intent: "TRANSFER_TO_STAFF" },
+      handoffData: { reasonCode: "booking-workflow-failure", officeCode: session.officeCode, callSid: session.callSid }
+    };
+  }
+
+  private async processCallerText(
     session: CallSession,
     callerText: string,
     options: { recordCallerTurn?: boolean } = {}
@@ -172,7 +199,7 @@ export class AiReceptionistOrchestrator {
     });
   }
 
-  private async resolveModelResult(session: CallSession, result: ModelTurnResult): Promise<ModelTurnResult> {
+  private async resolveModelResult(session: CallSession, result: ModelTurnResult, bookingFollowups = 0): Promise<ModelTurnResult> {
     if (!result.toolRequest) {
       return result;
     }
@@ -228,6 +255,10 @@ export class AiReceptionistOrchestrator {
       );
     }
 
+    if (result.toolRequest.name === "BOOK_APPOINTMENT" && session.workflowState?.state === "REQUIRES_CONFIRMATION") {
+      return this.modelClient.bookingResponse(session, "AWAITING_CONFIRMATION");
+    }
+
     const followupModelStartedAt = Date.now();
     const finalResult = await this.modelClient.continueWithToolResult(session, toolResult);
     logger.info("AI tool result response completed", {
@@ -239,7 +270,22 @@ export class AiReceptionistOrchestrator {
       workflowStateSummary: this.workflowStateSummary(session),
       durationMs: Date.now() - followupModelStartedAt
     });
+    if (result.toolRequest.name === "BOOK_APPOINTMENT") {
+      return this.resolveBookingFollowup(session, finalResult, bookingFollowups);
+    }
     return finalResult;
+  }
+
+  private async resolveBookingFollowup(
+    session: CallSession, result: ModelTurnResult, followups: number
+  ): Promise<ModelTurnResult> {
+    result = prepareBookingFollowup(session, result, followups);
+    if (result.collectedFields) {
+      session.collectedFields = { ...session.collectedFields, ...result.collectedFields };
+    }
+    if (!result.toolRequest || result.toolRequest.name === "TRANSFER_TO_STAFF") return result;
+    logger.info("Executing booking follow-up tool", { callSid: session.callSid, state: session.workflowState?.state, followups: followups + 1 });
+    return this.resolveModelResult(session, result, followups + 1);
   }
 
   private async resolvePolicyAwareModelResult(
@@ -250,6 +296,9 @@ export class AiReceptionistOrchestrator {
       overrideResult: firstResult
     };
 
+    if (policyDecision.repromptContext?.type === "BOOKING_CONFIRMATION") {
+      return this.modelClient.bookingResponse(session, "AWAITING_CONFIRMATION");
+    }
     if (policyDecision.repromptContext) {
       return this.continueFromPolicyReprompt(
         session,

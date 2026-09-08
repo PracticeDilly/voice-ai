@@ -15,7 +15,7 @@ export const bookAppointmentWorkflow: ConversationWorkflow = {
     }
 
     if (isBookingAwaitingConfirmation(session)) {
-      return bookingConfirmationDecision(session, result);
+      return bookingConfirmationDecision(result);
     }
 
     if (isPrematureBookingHandoff(session, result)) {
@@ -75,7 +75,11 @@ function isBookingAwaitingConfirmation(session: CallSession): boolean {
     && session.workflowState.state === "REQUIRES_CONFIRMATION";
 }
 
-function bookingConfirmationDecision(session: CallSession, result: ModelTurnResult): ToolPolicyDecision | undefined {
+function bookingConfirmationDecision(result: ModelTurnResult): ToolPolicyDecision | undefined {
+  if (result.callerAction?.requestedAction === "TRANSFER_TO_STAFF"
+    || result.callerAction?.workflowIntent === "TRANSFER_TO_STAFF") {
+    return undefined;
+  }
   if (isConfirmedBookingTool(result)) {
     return undefined;
   }
@@ -97,33 +101,12 @@ function bookingConfirmationDecision(session: CallSession, result: ModelTurnResu
     };
   }
 
-  return {
-    overrideResult: {
-      ...result,
-      intent: "BOOK_APPOINTMENT",
-      reply: confirmationPrompt(session),
-      shouldEndCall: false,
-      toolRequest: undefined
-    }
-  };
+  return { repromptContext: { type: "BOOKING_CONFIRMATION" } };
 }
 
 function isConfirmedBookingTool(result: ModelTurnResult): boolean {
   return result.toolRequest?.name === "BOOK_APPOINTMENT"
     && result.toolRequest.arguments?.callerConfirmedBooking === true;
-}
-
-function confirmationPrompt(session: CallSession): string {
-  const context = session.workflowState?.context;
-  const details = [
-    context?.bookingReason,
-    context?.providerName ? `with ${context.providerName}` : undefined,
-    context?.slotDate ? `on ${context.slotDate}` : undefined,
-    context?.slotTime ? `at ${context.slotTime}` : undefined
-  ].filter((part): part is string => typeof part === "string" && part.trim().length > 0);
-
-  const appointmentDetails = details.length ? ` for ${details.join(" ")}` : "";
-  return `This appointment is not booked yet. Please confirm if you would like me to book it${appointmentDetails}.`;
 }
 
 function isPrematureBookingHandoff(session: CallSession, result: ModelTurnResult): boolean {
@@ -145,21 +128,12 @@ function isPrematureBookingHandoff(session: CallSession, result: ModelTurnResult
 }
 
 function hasBookingField(fields: Record<string, unknown> | undefined): boolean {
-  if (!fields) {
-    return false;
-  }
+  if (!fields) return false;
 
-  return [
-    "firstName",
-    "lastName",
-    "dob",
-    "bookingReason",
-    "appointmentTypeId",
-    "providerName",
-    "datePreference",
-    "timePreference",
-    "slotDate",
-    "slotTime",
+  const bookingFields = [
+    "firstName", "lastName", "dob", "bookingReason", "appointmentTypeId",
+    "providerName", "datePreference", "timePreference", "slotDate", "slotTime",
     "callerConfirmedBooking"
-  ].some((fieldName) => fields[fieldName] !== undefined && fields[fieldName] !== null && fields[fieldName] !== "");
+  ];
+  return bookingFields.some((field) => fields[field] !== undefined && fields[field] !== null && fields[field] !== "");
 }
