@@ -43,12 +43,10 @@ function isLookupIntent(result: ModelTurnResult): boolean {
 
 function meaningfulIdentityFields(fields: Record<string, unknown>): Record<string, unknown> {
   const firstName = meaningfulString(fields.firstName);
-  const lastName = meaningfulString(fields.lastName);
   const dob = meaningfulString(fields.dob) ?? meaningfulString(fields.dateOfBirth);
 
   return {
     ...(firstName ? { firstName } : {}),
-    ...(lastName ? { lastName } : {}),
     ...(dob ? { dob } : {})
   };
 }

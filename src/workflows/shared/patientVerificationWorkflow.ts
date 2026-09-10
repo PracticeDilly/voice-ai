@@ -22,8 +22,6 @@ const patientVerificationToolAdapter: WorkflowToolAdapter = {
       arguments: {
         ...(textValue(tool.arguments?.firstName ?? session.collectedFields.firstName)
           ? { firstName: textValue(tool.arguments?.firstName ?? session.collectedFields.firstName) } : {}),
-        ...(textValue(tool.arguments?.lastName ?? session.collectedFields.lastName)
-          ? { lastName: textValue(tool.arguments?.lastName ?? session.collectedFields.lastName) } : {}),
         ...(textValue(tool.arguments?.dob ?? session.collectedFields.dob ?? session.collectedFields.dateOfBirth)
           ? { dob: textValue(tool.arguments?.dob ?? session.collectedFields.dob ?? session.collectedFields.dateOfBirth) } : {}),
         ...(textValue(session.fromNumber) ? { fromNumber: textValue(session.fromNumber) } : {})
@@ -106,7 +104,6 @@ function identityArguments(session: CallSession, result: ModelTurnResult): Recor
   };
   return {
     ...(textValue(fields.firstName) ? { firstName: textValue(fields.firstName) } : {}),
-    ...(textValue(fields.lastName) ? { lastName: textValue(fields.lastName) } : {}),
     ...(textValue(fields.dob ?? fields.dateOfBirth) ? { dob: textValue(fields.dob ?? fields.dateOfBirth) } : {}),
     ...(textValue(session.fromNumber) ? { fromNumber: textValue(session.fromNumber) } : {})
   };

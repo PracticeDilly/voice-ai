@@ -17,7 +17,7 @@ test("adds the caller number to a next-appointment lookup", () => {
   });
 });
 
-test("canonicalizes next-appointment lookup fields before sending them", () => {
+test("canonicalizes supported next-appointment lookup fields and ignores last name", () => {
   const prepared = toolAdapter.prepareTool(session(), {
     name: "GET_NEXT_APPOINTMENT",
     arguments: {
@@ -30,7 +30,6 @@ test("canonicalizes next-appointment lookup fields before sending them", () => {
 
   assert.deepEqual(prepared.arguments, {
     firstName: "Kim",
-    lastName: "Miller",
     dob: "10/18/1999",
     fromNumber: "+17030175781"
   });

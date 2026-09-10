@@ -173,6 +173,35 @@ test("keeps booking open when backend still requires booking confirmation", () =
   assert.equal(decision?.overrideResult, undefined);
 });
 
+test("keeps recoverable availability failures in booking instead of transferring", () => {
+  const decision = applyWorkflowTurnPolicies(session({
+    currentIntent: "BOOK_APPOINTMENT",
+    workflowState: {
+      contractVersion: 1,
+      workflow: "BOOK_APPOINTMENT",
+      state: "NEEDS_SCHEDULING_PREFERENCE",
+      requiredField: "datePreference",
+      allowedActions: ["BOOK_APPOINTMENT"],
+      failureReason: "No openings were found for the current booking details.",
+      context: {
+        bookingReason: "dental cleaning",
+        providerName: "David Johnson"
+      }
+    }
+  }), {
+    intent: "TRANSFER_TO_STAFF",
+    shouldEndCall: true,
+    toolRequest: {
+      name: "TRANSFER_TO_STAFF",
+      arguments: {}
+    }
+  });
+
+  assert.equal(decision?.overrideResult, undefined);
+  assert.equal(decision?.repromptContext?.type, "BOOKING_AVAILABILITY_ALTERNATIVE");
+  assert.match(decision?.instruction ?? "", /another date or available provider/i);
+});
+
 test("allows final booking request after explicit booking confirmation", () => {
   const original = {
     intent: "BOOK_APPOINTMENT",
@@ -764,7 +793,7 @@ test("executes confirmation after lookup when selection and authorization are al
   assert.equal(decision?.overrideResult?.toolRequest?.arguments.appointmentId, 503);
 });
 
-test("asks the caller to spell the name before falling back to staff on patient-not-found", () => {
+test("does not ask for last-name spelling before a patient-not-found staff transfer", () => {
   const decision = applyWorkflowTurnPolicies(session({
     collectedFields: {
       firstName: "Kima",
@@ -779,13 +808,10 @@ test("asks the caller to spell the name before falling back to staff on patient-
   });
 
   assert.equal(decision?.overrideResult, undefined);
-  assert.match(decision?.instruction ?? "", /spell the name/i);
-  assert.equal(decision?.repromptContext?.type, "ASK_CALLER_TO_SPELL_NAME");
-  assert.equal(decision?.repromptContext?.identity?.firstName, "Kima");
-  assert.equal(decision?.repromptContext?.identity?.lastName, "Miller");
+  assert.equal(decision, undefined);
 });
 
-test("asks the caller to spell the name after lookup failure before falling back to staff", () => {
+test("does not ask for last-name spelling after lookup failure", () => {
   const decision = applyWorkflowToolResultPolicies(session({
     currentIntent: "NEXT_APPOINTMENT",
     collectedFields: {
@@ -805,8 +831,7 @@ test("asks the caller to spell the name after lookup failure before falling back
     }
   }), "GET_NEXT_APPOINTMENT", { ok: true });
 
-  assert.match(decision?.instruction ?? "", /spell the name/i);
-  assert.equal(decision?.repromptContext?.type, "ASK_CALLER_TO_SPELL_NAME");
+  assert.equal(decision, undefined);
 });
 
 function session(input: {

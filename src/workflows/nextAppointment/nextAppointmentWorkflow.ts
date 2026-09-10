@@ -70,43 +70,12 @@ export const nextAppointmentWorkflow: ConversationWorkflow = {
       };
     }
 
-    if (shouldAskCallerToSpellName(context)) {
-      return {
-        instruction: "The previous patient lookup did not find a match. Stay in the active next-appointment identity-recovery flow. Ask the caller to spell the name that may have been heard incorrectly before transferring to staff.",
-        repromptContext: {
-          type: "ASK_CALLER_TO_SPELL_NAME",
-          identity: {
-            firstName: meaningfulString(session.collectedFields.firstName),
-            lastName: meaningfulString(session.collectedFields.lastName)
-          }
-        }
-      };
-    }
-
     return undefined;
   },
   applyToolResultPolicy(session: CallSession, toolName: string): ToolPolicyDecision | undefined {
     if (toolName !== "GET_NEXT_APPOINTMENT" || !isAppointmentIntent(session.currentIntent)) {
       clearIdentityVerification(session);
       return undefined;
-    }
-
-    const stateView = new NextAppointmentStateView(new WorkflowStateView(session.workflowState));
-    if (shouldAskCallerToSpellAfterLookup(session, stateView)) {
-      session.pendingActions.VERIFY_PATIENT_IDENTITY = {
-        status: "NEEDS_NAME_SPELLING",
-        createdAt: new Date().toISOString()
-      };
-      return {
-        instruction: "The patient lookup did not find a match. Stay in the active appointment identity-verification flow. Ask the caller to spell the name that may have been heard incorrectly before transferring to staff.",
-        repromptContext: {
-          type: "ASK_CALLER_TO_SPELL_NAME",
-          identity: {
-            firstName: meaningfulString(session.collectedFields.firstName),
-            lastName: meaningfulString(session.collectedFields.lastName)
-          }
-        }
-      };
     }
 
     clearIdentityVerification(session);
@@ -146,33 +115,6 @@ function shouldContinueIdentityVerification(context: ReturnType<typeof createNex
   return false;
 }
 
-function shouldAskCallerToSpellName(context: ReturnType<typeof createNextAppointmentTurnContext>): boolean {
-  return context.requestedHandoff
-    && !context.callerRequestedStaffTransfer
-    && context.stateView.isPatientNotFound()
-    && context.stateView.allowsLookup()
-    && Object.keys(context.updatedIdentityFields).length === 0
-    && hasKnownName(context.session.collectedFields)
-    && !lastAssistantAskedToSpell(context.session);
-}
-
-function hasKnownName(fields: Record<string, unknown>): boolean {
-  return !!meaningfulString(fields.firstName) || !!meaningfulString(fields.lastName);
-}
-
-function lastAssistantAskedToSpell(session: CallSession): boolean {
-  for (let index = session.transcript.length - 1; index >= 0; index -= 1) {
-    const turn = session.transcript[index];
-    if (turn.speaker !== "assistant") {
-      continue;
-    }
-
-    return turn.text.toLowerCase().includes("spell");
-  }
-
-  return false;
-}
-
 function meaningfulString(value: unknown): string | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -182,14 +124,10 @@ function meaningfulString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function shouldAskCallerToSpellAfterLookup(session: CallSession, stateView: NextAppointmentStateView): boolean {
-  return stateView.isPatientNotFound()
-    && hasKnownName(session.collectedFields)
-    && !lastAssistantAskedToSpell(session);
-}
-
 function hasNameUpdate(fields: Record<string, unknown>): boolean {
-  return !!meaningfulString(fields.firstName) || !!meaningfulString(fields.lastName);
+  return !!meaningfulString(fields.firstName)
+    || !!meaningfulString(fields.dob)
+    || !!meaningfulString(fields.dateOfBirth);
 }
 
 function clearIdentityVerification(session: CallSession): void {

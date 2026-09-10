@@ -19,6 +19,12 @@ export const bookAppointmentWorkflow: ConversationWorkflow = {
     }
 
     if (isPrematureBookingHandoff(session, result)) {
+      if (isRecoverableAvailabilityState(session)) {
+        return {
+          instruction: "The booking workflow has recoverable availability information. Do not transfer to staff yet. Explain that the requested date or provider is unavailable and ask whether another date or available provider would work. Do not request another booking tool until the caller answers.",
+          repromptContext: { type: "BOOKING_AVAILABILITY_ALTERNATIVE" }
+        };
+      }
       return {
         overrideResult: {
           ...result,
@@ -125,6 +131,11 @@ function isPrematureBookingHandoff(session: CallSession, result: ModelTurnResult
   }
 
   return isBookingIntent(session.currentIntent) || hasBookingField(result.collectedFields);
+}
+
+function isRecoverableAvailabilityState(session: CallSession): boolean {
+  return session.workflowState?.workflow === "BOOK_APPOINTMENT"
+    && ["NEEDS_SCHEDULING_PREFERENCE", "NEEDS_PROVIDER_SELECTION", "SELECT_SLOT"].includes(session.workflowState.state);
 }
 
 function hasBookingField(fields: Record<string, unknown> | undefined): boolean {

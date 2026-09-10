@@ -14,6 +14,8 @@ test("builds a compact workflow-oriented prompt", () => {
   assert.doesNotMatch(prompt, /GETevant|reldo/);
   assert.match(prompt, /"requiredArguments":\["firstName","dob","bookingReason","appointmentTypeId"\]/);
   assert.match(prompt, /Store date of birth as dob, never dateOfBirth/);
+  assert.match(prompt, /never ask the caller whether they are a returning patient/i);
+  assert.match(prompt, /do not ask for or require last name/i);
   assert.ok(prompt.length < 11000, `prompt is too long: ${prompt.length}`);
 });
 
