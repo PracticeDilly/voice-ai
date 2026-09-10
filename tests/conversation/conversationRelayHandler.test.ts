@@ -90,6 +90,53 @@ test("arms no-input reprompt after externally provided welcome greeting", async 
   assert.equal(armedTimers[0]?.noInputCount, 0);
 });
 
+test("suppresses a stale no-input timeout after caller activity", async () => {
+  const { CallSessionStore } = await import("../../src/calls/callSession.js");
+  const { ConversationRelayHandler } = await import("../../src/twilio/conversationRelayHandler.js");
+  const ws = new FakeWebSocket();
+  const sessions = new CallSessionStore();
+  const session = sessions.create({
+    callSid: "CA-stale-no-input",
+    officeCode: "MSHNN"
+  });
+  const handler = new ConversationRelayHandler();
+  const latestInputVersion = 2;
+  let recordedTurns = 0;
+
+  (handler as unknown as {
+    orchestrator: {
+      recordAssistantTurn(): Promise<void>;
+    };
+  }).orchestrator = {
+    async recordAssistantTurn() {
+      recordedTurns += 1;
+    }
+  };
+
+  await (handler as unknown as {
+    handleNoInputTimeout(
+      session: typeof session,
+      ws: WebSocket,
+      noInputCount: number,
+      setNoInputCount: (value: number) => void,
+      setNoInputTimer: (timer: ReturnType<typeof setTimeout> | undefined) => void,
+      expectedInputVersion: number,
+      getLatestInputVersion: () => number
+    ): Promise<void>;
+  }).handleNoInputTimeout(
+    session,
+    ws as unknown as WebSocket,
+    0,
+    () => undefined,
+    () => undefined,
+    1,
+    () => latestInputVersion
+  );
+
+  assert.equal(recordedTurns, 0);
+  assert.deepEqual(ws.sentMessages, []);
+});
+
 class FakeWebSocket extends EventEmitter {
   readyState = WebSocket.OPEN;
   sentMessages: unknown[] = [];

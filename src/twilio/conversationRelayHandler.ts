@@ -1,4 +1,5 @@
 import { WebSocket } from "ws";
+import { setImmediate } from "node:timers/promises";
 import { CallSession, CallSessionStore } from "../calls/callSession.js";
 import { config } from "../config/env.js";
 import { AiReceptionistOrchestrator } from "../conversation/aiReceptionistOrchestrator.js";
@@ -141,7 +142,9 @@ export class ConversationRelayHandler {
               },
               (timer) => {
                 noInputTimer = timer;
-              }
+              },
+              latestObservedInputVersion,
+              () => latestObservedInputVersion
             );
           } else {
             noInputTimer = this.resetNoInputTimer(
@@ -155,7 +158,9 @@ export class ConversationRelayHandler {
               },
               (timer) => {
                 noInputTimer = timer;
-              }
+              },
+              latestObservedInputVersion,
+              () => latestObservedInputVersion
             );
           }
           return;
@@ -187,18 +192,22 @@ export class ConversationRelayHandler {
             hasVoicePrompt: typeof message.voicePrompt === "string" && message.voicePrompt.trim().length > 0,
             voicePromptLength: message.voicePrompt?.length ?? 0
           });
-          noInputTimer = this.clearTimer(noInputTimer);
-          noInputCount = 0;
+          const callerText = message.voicePrompt?.trim();
+          if (callerText) {
+            latestObservedInputVersion += 1;
+            noInputTimer = this.clearTimer(noInputTimer);
+            noInputCount = 0;
+          }
 
           if (message.last !== true) {
-            logger.debug("Ignoring non-final Conversation Relay prompt fragment", {
+            logger.debug("Received non-final Conversation Relay prompt fragment", {
               callSid,
-              last: message.last
+              last: message.last,
+              latestObservedInputVersion
             });
             return;
           }
 
-          const callerText = message.voicePrompt?.trim();
           if (!callerText) {
             logger.info("Skipping empty Conversation Relay prompt", {
               callSid,
@@ -212,7 +221,6 @@ export class ConversationRelayHandler {
             return;
           }
 
-          latestObservedInputVersion += 1;
           this.addPendingPromptPart(callerText, pendingPromptParts);
           pendingPromptTimer = this.resetPendingPromptTimer(
             pendingPromptParts,
@@ -258,6 +266,7 @@ export class ConversationRelayHandler {
           }
 
           interruptionGeneration += 1;
+          latestObservedInputVersion += 1;
           pendingPromptParts = [];
           pendingPromptTimer = this.clearTimer(pendingPromptTimer);
           noInputTimer = this.clearTimer(noInputTimer);
@@ -422,7 +431,9 @@ export class ConversationRelayHandler {
       context.getNoInputTimer(),
       context.getNoInputCount(),
       context.setNoInputCount,
-      context.setNoInputTimer
+      context.setNoInputTimer,
+      context.expectedObservedInputVersion,
+      context.getLatestObservedInputVersion
     ));
 
     return {
@@ -537,7 +548,9 @@ export class ConversationRelayHandler {
     existingTimer: ReturnType<typeof setTimeout> | undefined,
     noInputCount: number,
     setNoInputCount: (value: number) => void,
-    setNoInputTimer: (timer: ReturnType<typeof setTimeout> | undefined) => void
+    setNoInputTimer: (timer: ReturnType<typeof setTimeout> | undefined) => void,
+    expectedInputVersion: number,
+    getLatestInputVersion: () => number
   ): ReturnType<typeof setTimeout> {
     this.clearTimer(existingTimer);
     const delayMs = this.estimatedSpeechDurationMs(assistantText) + config.AI_NO_INPUT_TIMEOUT_MS;
@@ -549,7 +562,15 @@ export class ConversationRelayHandler {
 
     return setTimeout(() => {
       setNoInputTimer(undefined);
-      void this.handleNoInputTimeout(session, ws, noInputCount, setNoInputCount, setNoInputTimer);
+      void this.handleNoInputTimeout(
+        session,
+        ws,
+        noInputCount,
+        setNoInputCount,
+        setNoInputTimer,
+        expectedInputVersion,
+        getLatestInputVersion
+      );
     }, delayMs);
   }
 
@@ -558,9 +579,19 @@ export class ConversationRelayHandler {
     ws: WebSocket,
     noInputCount: number,
     setNoInputCount: (value: number) => void,
-    setNoInputTimer: (timer: ReturnType<typeof setTimeout> | undefined) => void
+    setNoInputTimer: (timer: ReturnType<typeof setTimeout> | undefined) => void,
+    expectedInputVersion: number,
+    getLatestInputVersion: () => number
   ): Promise<void> {
-    if (ws.readyState !== WebSocket.OPEN) {
+    const isCurrent = (): boolean => ws.readyState === WebSocket.OPEN
+      && expectedInputVersion === getLatestInputVersion();
+
+    if (!isCurrent()) {
+      logger.info("Ignoring stale no-input timeout", {
+        callSid: session.callSid,
+        expectedInputVersion,
+        latestInputVersion: getLatestInputVersion()
+      });
       return;
     }
 
@@ -574,16 +605,36 @@ export class ConversationRelayHandler {
         attempt
       });
       setNoInputCount(attempt);
-      await this.orchestrator.recordAssistantTurn(session, reprompt, {
-        source: "no-input-reprompt",
-        attempt
-      });
+      await setImmediate();
+      if (!isCurrent()) {
+        logger.info("Suppressing no-input reprompt after caller activity", {
+          callSid: session.callSid,
+          attempt,
+          expectedInputVersion,
+          latestInputVersion: getLatestInputVersion()
+        });
+        return;
+      }
       this.send(ws, {
         type: "text",
         token: reprompt,
         last: true
       });
-      setNoInputTimer(this.resetNoInputTimer(session, ws, reprompt, undefined, attempt, setNoInputCount, setNoInputTimer));
+      void this.orchestrator.recordAssistantTurn(session, reprompt, {
+        source: "no-input-reprompt",
+        attempt
+      });
+      setNoInputTimer(this.resetNoInputTimer(
+        session,
+        ws,
+        reprompt,
+        undefined,
+        attempt,
+        setNoInputCount,
+        setNoInputTimer,
+        expectedInputVersion,
+        getLatestInputVersion
+      ));
       return;
     }
 
@@ -592,13 +643,22 @@ export class ConversationRelayHandler {
       callSid: session.callSid,
       attempts: noInputCount
     });
-    await this.orchestrator.recordAssistantTurn(session, closingMessage, {
-      source: "no-input-end"
-    });
+    await setImmediate();
+    if (!isCurrent()) {
+      logger.info("Suppressing no-input call end after caller activity", {
+        callSid: session.callSid,
+        expectedInputVersion,
+        latestInputVersion: getLatestInputVersion()
+      });
+      return;
+    }
     this.send(ws, {
       type: "text",
       token: closingMessage,
       last: true
+    });
+    void this.orchestrator.recordAssistantTurn(session, closingMessage, {
+      source: "no-input-end"
     });
     this.scheduleCallEnd(session, ws, closingMessage, {
       turnId: undefined,
