@@ -110,7 +110,7 @@ GET /health
 
 The first production tool set should stay small:
 
-- `VERIFY_PATIENT`
+- `VERIFY_PATIENT` (mandatory identity gate before patient-specific appointment workflows)
 - `GET_NEXT_APPOINTMENT`
 - `CONFIRM_APPOINTMENT`
 - `GET_INSURANCE_POLICY`

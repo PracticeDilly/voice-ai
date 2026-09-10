@@ -3,6 +3,53 @@ import test from "node:test";
 import { CallSession } from "../../src/calls/callSession.js";
 import { applyWorkflowToolResultPolicies, applyWorkflowTurnPolicies, prepareWorkflowTool } from "../../src/workflows/shared/workflowRegistry.js";
 
+test("forces patient verification before a next-appointment lookup when the office enables it", () => {
+  const call = session({
+    collectedFields: {
+      firstName: "Madi",
+      dob: "11/11/1999"
+    }
+  });
+  call.officeContext = {
+    officeCode: "OFC001",
+    timezone: "America/Los_Angeles",
+    allowedActions: ["VERIFY_PATIENT", "GET_NEXT_APPOINTMENT"]
+  };
+
+  const decision = applyWorkflowTurnPolicies(call, {
+    intent: "NEXT_APPOINTMENT",
+    toolRequest: {
+      name: "GET_NEXT_APPOINTMENT",
+      arguments: {}
+    }
+  });
+
+  assert.equal(decision?.overrideResult?.toolRequest?.name, "VERIFY_PATIENT");
+  assert.deepEqual(decision?.overrideResult?.toolRequest?.arguments, {
+    firstName: "Madi",
+    dob: "11/11/1999"
+  });
+  assert.equal(call.pendingPatientWorkflow?.name, "GET_NEXT_APPOINTMENT");
+
+  call.workflowState = {
+    contractVersion: 1,
+    workflow: "PATIENT_VERIFICATION",
+    state: "COMPLETED",
+    context: {
+      patientVerified: true,
+      canDisclosePatientData: true
+    }
+  };
+  call.verifiedIdentityFingerprint = JSON.stringify({
+    fromNumber: "",
+    firstName: "Madi",
+    dob: "11/11/1999"
+  });
+  const afterVerification = applyWorkflowToolResultPolicies(call, "VERIFY_PATIENT", { ok: true });
+  assert.equal(afterVerification?.overrideResult?.toolRequest?.name, "GET_NEXT_APPOINTMENT");
+  assert.equal(call.pendingPatientWorkflow, undefined);
+});
+
 test("forces fresh appointment lookup for follow-up questions after confirmation", () => {
   const decision = applyWorkflowTurnPolicies(session({
     collectedFields: {

@@ -4,9 +4,11 @@ import { ModelTurnResult } from "../../conversation/modelClient.js";
 import { bookAppointmentWorkflow } from "../bookAppointment/bookAppointmentWorkflow.js";
 import { confirmAppointmentWorkflow } from "../confirmAppointment/confirmAppointmentWorkflow.js";
 import { nextAppointmentWorkflow } from "../nextAppointment/nextAppointmentWorkflow.js";
+import { patientVerificationWorkflow } from "./patientVerificationWorkflow.js";
 import { ConversationWorkflow, ToolPolicyDecision } from "./workflowTypes.js";
 
 const workflows: ConversationWorkflow[] = [
+  patientVerificationWorkflow,
   bookAppointmentWorkflow,
   confirmAppointmentWorkflow,
   nextAppointmentWorkflow

@@ -12,6 +12,11 @@ interface ToolContract {
 
 const toolContracts: ToolContract[] = [
   {
+    name: "VERIFY_PATIENT",
+    purpose: "Resolve and verify the caller before any patient-specific appointment workflow.",
+    optionalArguments: ["firstName", "lastName", "dob", "fromNumber"]
+  },
+  {
     name: "GET_NEXT_APPOINTMENT",
     purpose: "Read-only lookup for verified or in-progress patient appointment workflows.",
     optionalArguments: ["firstName", "dob", "lastName", "fromNumber"]
@@ -72,6 +77,7 @@ export function buildSystemPrompt(session: CallSession): string {
     "",
     "Workflow protocol:",
     "- Treat workflowState as authoritative; use state, requiredField, allowedActions, context, and failureReason.",
+    "- VERIFY_PATIENT is the mandatory prerequisite for GET_NEXT_APPOINTMENT, BOOK_APPOINTMENT, and CONFIRM_APPOINTMENT. Node may invoke it before the requested workflow.",
     "- NEEDS_INPUT: ask only for requiredField and preserve known collectedFields.",
     "- SELECT_OPTION: help the caller identify one backend-provided option; do not execute a state-changing tool yet.",
     "- REQUIRES_CONFIRMATION: restate the selected option and wait for clear confirmation.",
@@ -89,7 +95,7 @@ export function buildSystemPrompt(session: CallSession): string {
     "- If the caller chooses by date, day, time, or ordinal, resolve it to the matching backend appointmentId.",
     "- Do not request CONFIRM_APPOINTMENT without a selected appointment. If the choice is ambiguous, ask which appointment they want.",
     "- Do not re-ask for known name or DOB unless corrected or the active workflow still needs it after a failed match.",
-    "- For appointment lookups and confirmations, collect date of birth before disclosing appointment details or confirming.",
+    "- For appointment lookups and confirmations, collect first name and date of birth before verification; do not disclose appointment details before workflowState.context.patientVerified is true.",
     "- For booking, use exact fields firstName, lastName, dob, bookingReason, appointmentTypeId, providerName, datePreference, timePreference, slotDate, slotTime, callerConfirmedBooking in both collectedFields and tool arguments. Store date of birth as dob, never dateOfBirth. Preserve known values; never ask the patient to repair JSON or repeat data to fix a field-name error.",
     "- Request BOOK_APPOINTMENT once firstName, dob, bookingReason and an eligible appointmentTypeId are known. Do not promise a lookup without requesting the tool. A response needing identity is not an availability result; never describe it as no openings or a slot lookup failure.",
     "- Do not decide a booking reason, provider, or service must transfer to staff; request BOOK_APPOINTMENT and follow backend workflowState unless the caller explicitly asks for staff.",

@@ -58,6 +58,12 @@ export interface PendingActions {
   };
 }
 
+export interface PendingPatientWorkflowAction {
+  name: "GET_NEXT_APPOINTMENT" | "BOOK_APPOINTMENT" | "CONFIRM_APPOINTMENT";
+  arguments: Record<string, unknown>;
+  createdAt: string;
+}
+
 export interface AppointmentSelectionOption {
   appointmentId: unknown;
   appointmentDate?: string;
@@ -88,6 +94,8 @@ export interface CallSession {
   collectedFields: Record<string, unknown>;
   lastToolResults: Record<string, unknown>;
   pendingActions: PendingActions;
+  pendingPatientWorkflow?: PendingPatientWorkflowAction;
+  verifiedIdentityFingerprint?: string;
   appointmentSelections: AppointmentSelections;
 }
 
