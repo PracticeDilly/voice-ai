@@ -36,7 +36,19 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
 
   applyTurnPolicy(session: CallSession, result: ModelTurnResult): ToolPolicyDecision | undefined {
     const requestedTool = result.toolRequest;
-    if (!requestedTool || requestedTool.name === verificationToolName) {
+    if (!requestedTool) {
+      return undefined;
+    }
+
+    if (requestedTool.name === verificationToolName) {
+      if (verificationCapabilityEnabled(session)
+        && !isPatientVerified(session)
+        && !session.pendingPatientWorkflow) {
+        const pending = inferPendingPatientWorkflow(session, result);
+        if (pending) {
+          session.pendingPatientWorkflow = pendingAction(pending);
+        }
+      }
       return undefined;
     }
 
@@ -96,6 +108,40 @@ function pendingAction(tool: ToolRequest): PendingPatientWorkflowAction {
   };
 }
 
+function inferPendingPatientWorkflow(session: CallSession, result: ModelTurnResult): ToolRequest | undefined {
+  const intent = normalizedIntent(session.currentIntent);
+  if (intent === "NEXT_APPOINTMENT" || intent === "GET_NEXT_APPOINTMENT") {
+    return {
+      name: "GET_NEXT_APPOINTMENT",
+      arguments: identityArguments(session, result)
+    };
+  }
+
+  if (intent === "BOOK_APPOINTMENT") {
+    return {
+      name: "BOOK_APPOINTMENT",
+      arguments: {
+        ...session.collectedFields,
+        ...(result.collectedFields ?? {}),
+        ...(textValue(session.fromNumber) ? { fromNumber: textValue(session.fromNumber) } : {})
+      }
+    };
+  }
+
+  if (intent === "CONFIRM_APPOINTMENT") {
+    return {
+      name: "CONFIRM_APPOINTMENT",
+      arguments: {
+        ...session.collectedFields,
+        ...(result.collectedFields ?? {}),
+        ...(result.toolRequest?.arguments ?? {})
+      }
+    };
+  }
+
+  return undefined;
+}
+
 function identityArguments(session: CallSession, result: ModelTurnResult): Record<string, unknown> {
   const fields = {
     ...session.collectedFields,
@@ -136,6 +182,14 @@ function textValue(value: unknown): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function normalizedIntent(value: string | undefined): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  return value.trim().toUpperCase();
 }
 
 function identityFingerprint(session: CallSession): string {

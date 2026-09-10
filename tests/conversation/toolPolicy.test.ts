@@ -50,6 +50,57 @@ test("forces patient verification before a next-appointment lookup when the offi
   assert.equal(call.pendingPatientWorkflow, undefined);
 });
 
+test("replays the active next-appointment lookup after direct patient verification", () => {
+  const call = session({
+    currentIntent: "NEXT_APPOINTMENT",
+    collectedFields: {
+      firstName: "Mary",
+      dob: "11/11/1999"
+    }
+  });
+  call.officeContext = {
+    officeCode: "OFC001",
+    timezone: "America/Los_Angeles",
+    allowedActions: ["VERIFY_PATIENT", "GET_NEXT_APPOINTMENT"]
+  };
+
+  const verificationTurn = applyWorkflowTurnPolicies(call, {
+    intent: "NEXT_APPOINTMENT",
+    toolRequest: {
+      name: "VERIFY_PATIENT",
+      arguments: {
+        firstName: "Mary",
+        dob: "11/11/1999"
+      }
+    }
+  });
+
+  assert.equal(verificationTurn, undefined);
+  assert.equal(call.pendingPatientWorkflow?.name, "GET_NEXT_APPOINTMENT");
+
+  call.workflowState = {
+    contractVersion: 1,
+    workflow: "PATIENT_VERIFICATION",
+    state: "COMPLETED",
+    context: {
+      patientVerified: true,
+      canDisclosePatientData: true
+    }
+  };
+  call.verifiedIdentityFingerprint = JSON.stringify({
+    fromNumber: "",
+    firstName: "Mary",
+    dob: "11/11/1999"
+  });
+
+  const replay = applyWorkflowToolResultPolicies(call, "VERIFY_PATIENT", { ok: true });
+  assert.equal(replay?.overrideResult?.toolRequest?.name, "GET_NEXT_APPOINTMENT");
+  assert.deepEqual(replay?.overrideResult?.toolRequest?.arguments, {
+    firstName: "Mary",
+    dob: "11/11/1999"
+  });
+});
+
 test("forces fresh appointment lookup for follow-up questions after confirmation", () => {
   const decision = applyWorkflowTurnPolicies(session({
     collectedFields: {
