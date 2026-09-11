@@ -133,6 +133,94 @@ test("continues booking after verification identifies a new-patient candidate", 
   assert.equal(replay?.overrideResult?.toolRequest?.name, "BOOK_APPOINTMENT");
   assert.equal(call.newPatientBookingCandidate, true);
   assert.equal(call.pendingPatientWorkflow, undefined);
+  assert.equal(replay?.overrideResult?.toolRequest?.arguments.continueAsNewPatient, true);
+});
+
+test("requires explicit consent before continuing as a new patient", () => {
+  const call = session({
+    currentIntent: "BOOK_APPOINTMENT",
+    collectedFields: {
+      firstName: "Mary",
+      dob: "11/11/1999",
+      bookingReason: "dental cleaning"
+    },
+    workflowState: {
+      contractVersion: 1,
+      workflow: "PATIENT_VERIFICATION",
+      state: "NEEDS_NEW_PATIENT_CONFIRMATION",
+      allowedActions: ["BOOK_APPOINTMENT", "TRANSFER_TO_STAFF"],
+      failureReason: "NO_EXISTING_PATIENT_RECORD",
+      context: {
+        patientVerified: false,
+        canDisclosePatientData: false
+      }
+    }
+  });
+
+  const decision = applyWorkflowTurnPolicies(call, {
+    intent: "BOOK_APPOINTMENT",
+    callerAction: {
+      speechAct: "AUTHORIZATION",
+      workflowIntent: "BOOK_APPOINTMENT",
+      authorization: {
+        stateChangingAction: "CONTINUE_AS_NEW_PATIENT",
+        isExplicit: true
+      }
+    }
+  });
+
+  assert.equal(decision?.overrideResult?.toolRequest?.name, "VERIFY_PATIENT");
+  assert.equal(decision?.overrideResult?.toolRequest?.arguments.continueAsNewPatient, true);
+});
+
+test("does not transfer after an unsuccessful verification without caller authorization", () => {
+  const decision = applyWorkflowTurnPolicies(session({
+    currentIntent: "BOOK_APPOINTMENT",
+    workflowState: {
+      contractVersion: 1,
+      workflow: "PATIENT_VERIFICATION",
+      state: "NEEDS_NEW_PATIENT_CONFIRMATION",
+      allowedActions: ["BOOK_APPOINTMENT", "TRANSFER_TO_STAFF"],
+      failureReason: "NO_EXISTING_PATIENT_RECORD",
+      context: {
+        patientVerified: false,
+        canDisclosePatientData: false
+      }
+    }
+  }), {
+    intent: "TRANSFER_TO_STAFF",
+    toolRequest: { name: "TRANSFER_TO_STAFF", arguments: {} }
+  });
+
+  assert.equal(decision?.repromptContext?.type, "NEW_PATIENT_CONFIRMATION");
+  assert.equal(decision?.overrideResult, undefined);
+});
+
+test("retries verification with the corrected first-name spelling", () => {
+  const call = session({
+    currentIntent: "BOOK_APPOINTMENT",
+    pendingIdentityStatus: "NEEDS_NAME_SPELLING",
+    workflowState: {
+      contractVersion: 1,
+      workflow: "PATIENT_VERIFICATION",
+      state: "FAILED",
+      allowedActions: ["VERIFY_PATIENT", "TRANSFER_TO_STAFF"],
+      failureReason: "FIRST_NAME_NO_MATCH",
+      context: {
+        patientVerified: false,
+        canDisclosePatientData: false
+      }
+    },
+    collectedFields: { dob: "11/11/1999" }
+  });
+
+  const decision = applyWorkflowTurnPolicies(call, {
+    intent: "BOOK_APPOINTMENT",
+    collectedFields: { firstName: "Maddie" }
+  });
+
+  assert.equal(decision?.overrideResult?.toolRequest?.name, "VERIFY_PATIENT");
+  assert.equal(decision?.overrideResult?.toolRequest?.arguments.firstName, "Maddie");
 });
 
 test("clears the new-patient candidate after booking completes", () => {
@@ -938,7 +1026,7 @@ function session(input: {
   failureReason?: string;
   pendingAppointmentId?: unknown;
   pendingStatus?: "AWAITING_CALLER_CONFIRMATION" | "READY_TO_EXECUTE";
-  pendingIdentityStatus?: "NEEDS_NAME_SPELLING";
+  pendingIdentityStatus?: "NEEDS_NAME_SPELLING" | "NEEDS_DOB_CORRECTION";
   selectionOptions?: Array<{ appointmentId: unknown; appointmentDate: string; doctorName?: string }>;
   workflowState?: CallSession["workflowState"];
 }): CallSession {

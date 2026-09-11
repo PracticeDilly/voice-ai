@@ -25,7 +25,7 @@ export type RequestedAction =
   | "NONE";
 
 export interface CallerActionAuthorization {
-  stateChangingAction?: "CONFIRM_APPOINTMENT" | "BOOK_APPOINTMENT" | null;
+  stateChangingAction?: "CONFIRM_APPOINTMENT" | "BOOK_APPOINTMENT" | "CONTINUE_AS_NEW_PATIENT" | null;
   isExplicit?: boolean;
   selectedAppointmentReference?: Record<string, unknown> | null;
 }
@@ -38,8 +38,14 @@ export interface CallerActionDecision {
 }
 
 export function callerActionRequestsStaffTransfer(result: ModelTurnResult): boolean {
-  return result.callerAction?.requestedAction === "TRANSFER_TO_STAFF"
-    || result.callerAction?.workflowIntent === "TRANSFER_TO_STAFF";
+  const action = result.callerAction;
+  if (!action || (action.requestedAction !== "TRANSFER_TO_STAFF"
+      && action.workflowIntent !== "TRANSFER_TO_STAFF")) {
+    return false;
+  }
+
+  return action.speechAct === "REQUEST"
+    || (action.speechAct === "AUTHORIZATION" && action.authorization?.isExplicit === true);
 }
 
 export function callerActionExplicitlyAuthorizesConfirmation(result?: ModelTurnResult): boolean {
@@ -51,6 +57,12 @@ export function callerActionExplicitlyAuthorizesConfirmation(result?: ModelTurnR
 export function callerActionExplicitlyAuthorizesBooking(result?: ModelTurnResult): boolean {
   return result?.callerAction?.speechAct === "AUTHORIZATION"
     && result.callerAction.authorization?.stateChangingAction === "BOOK_APPOINTMENT"
+    && result.callerAction.authorization.isExplicit === true;
+}
+
+export function callerActionExplicitlyAuthorizesNewPatient(result?: ModelTurnResult): boolean {
+  return result?.callerAction?.speechAct === "AUTHORIZATION"
+    && result.callerAction.authorization?.stateChangingAction === "CONTINUE_AS_NEW_PATIENT"
     && result.callerAction.authorization.isExplicit === true;
 }
 

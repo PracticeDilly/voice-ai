@@ -1,6 +1,10 @@
 import { ToolRequest } from "../../backend/springBootClient.js";
 import { CallSession, PendingPatientWorkflowAction } from "../../calls/callSession.js";
 import { ModelTurnResult } from "../../conversation/modelClient.js";
+import {
+  callerActionExplicitlyAuthorizesNewPatient,
+  callerActionRequestsStaffTransfer
+} from "./callerActionDecision.js";
 import { ConversationWorkflow, ToolPolicyDecision, WorkflowToolAdapter } from "./workflowTypes.js";
 
 const patientSpecificTools = new Set([
@@ -24,7 +28,8 @@ const patientVerificationToolAdapter: WorkflowToolAdapter = {
           ? { firstName: textValue(tool.arguments?.firstName ?? session.collectedFields.firstName) } : {}),
         ...(textValue(tool.arguments?.dob ?? session.collectedFields.dob ?? session.collectedFields.dateOfBirth)
           ? { dob: textValue(tool.arguments?.dob ?? session.collectedFields.dob ?? session.collectedFields.dateOfBirth) } : {}),
-        ...(textValue(session.fromNumber) ? { fromNumber: textValue(session.fromNumber) } : {})
+        ...(textValue(session.fromNumber) ? { fromNumber: textValue(session.fromNumber) } : {}),
+        ...(tool.arguments?.continueAsNewPatient === true ? { continueAsNewPatient: true } : {})
       }
     };
   }
@@ -35,12 +40,35 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
   toolAdapter: patientVerificationToolAdapter,
 
   applyTurnPolicy(session: CallSession, result: ModelTurnResult): ToolPolicyDecision | undefined {
+    const correctionRetry = retryIdentityCorrection(session, result);
+    if (correctionRetry) {
+      return correctionRetry;
+    }
+
     const requestedTool = result.toolRequest;
     if (!requestedTool) {
+      if (isNewPatientConfirmationState(session)
+        && callerActionExplicitlyAuthorizesNewPatient(result)
+        && isBookingIntent(session.currentIntent)) {
+        ensurePendingBooking(session, result);
+        return verifyForNewPatient(session, result);
+      }
+      if (isUnauthorizedTransfer(session, result)) {
+        return transferConfirmationDecision(session);
+      }
       return undefined;
     }
 
+    if (requestedTool.name === "TRANSFER_TO_STAFF" && isUnauthorizedTransfer(session, result)) {
+      return transferConfirmationDecision(session);
+    }
+
     if (requestedTool.name === verificationToolName) {
+      if (isNewPatientConfirmationState(session)
+        && isBookingIntent(session.currentIntent)
+        && !callerActionExplicitlyAuthorizesNewPatient(result)) {
+        return newPatientConfirmationDecision();
+      }
       if (verificationCapabilityEnabled(session)
         && !isPatientVerified(session)
         && !session.pendingPatientWorkflow) {
@@ -48,6 +76,12 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
         if (pending) {
           session.pendingPatientWorkflow = pendingAction(pending);
         }
+      }
+      if (callerActionExplicitlyAuthorizesNewPatient(result) && isBookingIntent(session.currentIntent)) {
+        requestedTool.arguments = {
+          ...requestedTool.arguments,
+          continueAsNewPatient: true
+        };
       }
       return undefined;
     }
@@ -60,6 +94,11 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
 
     if (requestedTool.name === "BOOK_APPOINTMENT" && isNewPatientBookingCandidate(session)) {
       return undefined;
+    }
+
+    if (requestedTool.name === "BOOK_APPOINTMENT" && isNewPatientConfirmationState(session)) {
+      session.pendingPatientWorkflow = pendingAction(requestedTool);
+      return newPatientConfirmationDecision();
     }
 
     session.pendingPatientWorkflow = pendingAction(requestedTool);
@@ -86,6 +125,7 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
 
     if (!isSuccessfulToolResult(toolResult)) {
       delete session.verifiedIdentityFingerprint;
+      rememberIdentityCorrection(session);
       return undefined;
     }
 
@@ -98,7 +138,10 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
           intent: pending.name,
           toolRequest: {
             name: pending.name,
-            arguments: pending.arguments
+            arguments: {
+              ...pending.arguments,
+              continueAsNewPatient: true
+            }
           }
         }
       };
@@ -106,6 +149,7 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
 
     if (!isVerifiedWorkflowState(session)) {
       delete session.verifiedIdentityFingerprint;
+      rememberIdentityCorrection(session);
       return undefined;
     }
 
@@ -183,6 +227,115 @@ function identityArguments(session: CallSession, result: ModelTurnResult): Recor
     ...(textValue(fields.dob ?? fields.dateOfBirth) ? { dob: textValue(fields.dob ?? fields.dateOfBirth) } : {}),
     ...(textValue(session.fromNumber) ? { fromNumber: textValue(session.fromNumber) } : {})
   };
+}
+
+function retryIdentityCorrection(session: CallSession, result: ModelTurnResult): ToolPolicyDecision | undefined {
+  const pendingStatus = session.pendingActions.VERIFY_PATIENT_IDENTITY?.status;
+  if (result.toolRequest || !pendingStatus) {
+    return undefined;
+  }
+
+  const correctedField = pendingStatus === "NEEDS_NAME_SPELLING" ? "firstName" : "dob";
+  if (!textValue(result.collectedFields?.[correctedField])) {
+    return undefined;
+  }
+
+  return {
+    overrideResult: {
+      ...result,
+      intent: session.currentIntent ?? result.intent,
+      toolRequest: {
+        name: verificationToolName,
+        arguments: identityArguments(session, result)
+      }
+    },
+    instruction: "Retry patient verification using the corrected identity value supplied by the caller."
+  };
+}
+
+function rememberIdentityCorrection(session: CallSession): void {
+  const reason = session.workflowState?.failureReason;
+  if (reason === "FIRST_NAME_NO_MATCH") {
+    session.pendingActions.VERIFY_PATIENT_IDENTITY = {
+      status: "NEEDS_NAME_SPELLING",
+      createdAt: new Date().toISOString()
+    };
+  } else if (reason === "DOB_NO_MATCH") {
+    session.pendingActions.VERIFY_PATIENT_IDENTITY = {
+      status: "NEEDS_DOB_CORRECTION",
+      createdAt: new Date().toISOString()
+    };
+  }
+}
+
+function ensurePendingBooking(session: CallSession, result: ModelTurnResult): void {
+  if (!session.pendingPatientWorkflow) {
+    const pending = inferPendingPatientWorkflow(session, result);
+    if (pending) {
+      session.pendingPatientWorkflow = pendingAction(pending);
+    }
+  }
+}
+
+function verifyForNewPatient(session: CallSession, result: ModelTurnResult): ToolPolicyDecision {
+  return {
+    overrideResult: {
+      ...result,
+      intent: "BOOK_APPOINTMENT",
+      toolRequest: {
+        name: verificationToolName,
+        arguments: {
+          ...identityArguments(session, result),
+          continueAsNewPatient: true
+        }
+      }
+    }
+  };
+}
+
+function isNewPatientConfirmationState(session: CallSession): boolean {
+  return session.workflowState?.workflow === "PATIENT_VERIFICATION"
+    && session.workflowState.state === "NEEDS_NEW_PATIENT_CONFIRMATION";
+}
+
+function isUnauthorizedTransfer(session: CallSession, result: ModelTurnResult): boolean {
+  return isPatientVerificationBoundary(session)
+    && isTransferResult(result)
+    && !callerActionRequestsStaffTransfer(result);
+}
+
+function isPatientVerificationBoundary(session: CallSession): boolean {
+  return session.workflowState?.workflow === "PATIENT_VERIFICATION"
+    && ["NEEDS_NEW_PATIENT_CONFIRMATION", "FAILED", "HANDOFF_REQUIRED"].includes(session.workflowState.state);
+}
+
+function isTransferResult(result: ModelTurnResult): boolean {
+  return result.toolRequest?.name === "TRANSFER_TO_STAFF"
+    || normalizedIntent(result.intent) === "TRANSFER_TO_STAFF";
+}
+
+function transferConfirmationDecision(session: CallSession): ToolPolicyDecision {
+  return {
+    instruction: isNewPatientConfirmationState(session) && isBookingIntent(session.currentIntent)
+      ? "Do not transfer yet. Tell the caller that no existing patient record was found and ask whether they want to continue as a new patient or speak with office staff. Do not collect new-patient fields until they explicitly choose the new-patient option."
+      : "Do not transfer yet. Explain the verification issue and ask whether the caller would like to speak with office staff. Transfer only after an explicit yes or direct request.",
+    repromptContext: {
+      type: isNewPatientConfirmationState(session) && isBookingIntent(session.currentIntent)
+        ? "NEW_PATIENT_CONFIRMATION"
+        : "IDENTITY_CORRECTION"
+    }
+  };
+}
+
+function newPatientConfirmationDecision(): ToolPolicyDecision {
+  return {
+    instruction: "Ask the caller for explicit permission before continuing as a new patient. Do not call BOOK_APPOINTMENT or collect new-patient details yet.",
+    repromptContext: { type: "NEW_PATIENT_CONFIRMATION" }
+  };
+}
+
+function isBookingIntent(intent: string | undefined): boolean {
+  return normalizedIntent(intent) === "BOOK_APPOINTMENT";
 }
 
 function isPatientVerified(session: CallSession): boolean {

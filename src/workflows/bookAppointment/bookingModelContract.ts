@@ -21,7 +21,8 @@ const bookingFields = z.object({
   slotTime: textField,
   fromDate: textField,
   toDate: textField,
-  callerConfirmedBooking: z.boolean().nullable().optional()
+  callerConfirmedBooking: z.boolean().nullable().optional(),
+  continueAsNewPatient: z.boolean().nullable().optional()
 }).strict();
 
 const requiredBookingToolFields = ["firstName", "dob", "bookingReason", "appointmentTypeId"] as const;

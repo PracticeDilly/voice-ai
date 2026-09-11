@@ -273,7 +273,7 @@ export class AiReceptionistOrchestrator {
     if (result.toolRequest.name === "BOOK_APPOINTMENT") {
       return this.resolveBookingFollowup(session, finalResult, bookingFollowups);
     }
-    return finalResult;
+    return this.resolvePolicyAwareModelResult(session, finalResult);
   }
 
   private async resolveBookingFollowup(

@@ -19,7 +19,8 @@ const bookingFieldNames = [
   "slotTime",
   "fromDate",
   "toDate",
-  "callerConfirmedBooking"
+  "callerConfirmedBooking",
+  "continueAsNewPatient"
 ];
 
 export function normalizeBookingArguments(
