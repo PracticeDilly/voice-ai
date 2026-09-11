@@ -2,9 +2,11 @@ import { ToolRequest } from "../../backend/springBootClient.js";
 import { CallSession } from "../../calls/callSession.js";
 import { logger } from "../../utils/logger.js";
 import { WorkflowToolAdapter } from "../shared/workflowTypes.js";
-import { isBookingDateRangeValid } from "./bookingDatePreference.js";
+import { isBookingDatePreferenceValid, isBookingDateRangeValid } from "./bookingDatePreference.js";
 import { normalizeBookingArguments } from "./bookingArgumentNormalizer.js";
 import { providerNameMatchesOfficeContext } from "./officeContextProviders.js";
+
+const SLOT_NOT_AVAILABLE_MESSAGE = "Select a slot returned by the availability search.";
 
 export class BookAppointmentToolAdapter implements WorkflowToolAdapter {
   supports(tool: ToolRequest): boolean {
@@ -42,15 +44,36 @@ export class BookAppointmentToolAdapter implements WorkflowToolAdapter {
       return "Select a provider from office context only; clarify the caller's preference without offering widget providers.";
     }
     const appointmentTypeId = tool.arguments?.appointmentTypeId;
-    if (appointmentTypeId !== undefined && !session.officeContext?.appointmentTypes?.RETURNING_PATIENT
+    const patientType = session.workflowState?.context?.patientType === "NEW_PATIENT"
+      ? "NEW_PATIENT"
+      : "RETURNING_PATIENT";
+    if (appointmentTypeId !== undefined && !session.officeContext?.appointmentTypes?.[patientType]
       ?.some((type) => type.appointmentTypeId === appointmentTypeId && type.duration > 0)) {
-      return "Select an eligible RETURNING_PATIENT appointmentTypeId from office context based on bookingReason; clarify when ambiguous.";
+      return `Select an eligible ${patientType} appointmentTypeId from office context based on bookingReason; clarify when ambiguous.`;
+    }
+
+    for (const fieldName of ["datePreference", "fromDate", "toDate"] as const) {
+      const value = tool.arguments?.[fieldName];
+      if (hasDateValue(value) && !isBookingDatePreferenceValid(value, session.officeContext?.timezone, session.startedAt)) {
+        return "Please provide a specific valid appointment date, such as Monday or 09/14/2026.";
+      }
     }
 
     if (tool.arguments?.fromDate !== undefined || tool.arguments?.toDate !== undefined) {
       if (!isBookingDateRangeValid(tool.arguments?.fromDate, tool.arguments?.toDate)) {
-        return "Booking availability requires valid fromDate and toDate values covering no more than seven days.";
+        return "Booking availability requires valid fromDate and toDate values; the maximum allowed difference is 7 days.";
       }
+    }
+
+    const requestedSlotDate = tool.arguments?.slotDate;
+    const requestedSlotTime = tool.arguments?.slotTime;
+    const requestedSlotError = validateAvailableSlot(
+      session.workflowState?.context?.slots,
+      requestedSlotDate,
+      requestedSlotTime
+    );
+    if (requestedSlotError) {
+      return requestedSlotError;
     }
 
     if (tool.arguments?.callerConfirmedBooking !== true) {
@@ -79,6 +102,41 @@ export class BookAppointmentToolAdapter implements WorkflowToolAdapter {
       return "Booking confirmation requires the backend-selected slot date and time.";
     }
 
+    const selectedSlotError = validateAvailableSlot(
+      session.workflowState.context?.slots,
+      slotDate,
+      slotTime
+    );
+    if (selectedSlotError) {
+      return selectedSlotError;
+    }
+
     return undefined;
   }
+}
+
+function hasDateValue(value: unknown): boolean {
+  return value !== undefined && value !== null && value !== "";
+}
+
+function validateAvailableSlot(
+  slots: unknown[] | undefined,
+  slotDate: unknown,
+  slotTime: unknown
+): string | undefined {
+  if (!slots || slotDate === undefined || slotTime === undefined) {
+    return undefined;
+  }
+
+  return slotExists(slots, slotDate, slotTime) ? undefined : SLOT_NOT_AVAILABLE_MESSAGE;
+}
+
+function slotExists(slots: unknown[], slotDate: unknown, slotTime: unknown): boolean {
+  return slots.some((slot) => {
+    if (!slot || typeof slot !== "object" || Array.isArray(slot)) {
+      return false;
+    }
+    const candidate = slot as { slotDate?: unknown; slotTime?: unknown };
+    return candidate.slotDate === slotDate && candidate.slotTime === slotTime;
+  });
 }

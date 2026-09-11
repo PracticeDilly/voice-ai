@@ -101,6 +101,52 @@ test("replays the active next-appointment lookup after direct patient verificati
   });
 });
 
+test("continues booking after verification identifies a new-patient candidate", () => {
+  const call = session({
+    currentIntent: "BOOK_APPOINTMENT",
+    collectedFields: {
+      firstName: "Madi",
+      bookingReason: "dental cleaning"
+    }
+  });
+  call.pendingPatientWorkflow = {
+    name: "BOOK_APPOINTMENT",
+    arguments: {
+      firstName: "Madi",
+      bookingReason: "dental cleaning"
+    },
+    createdAt: "2026-09-10T00:00:00.000Z"
+  };
+  call.workflowState = {
+    contractVersion: 1,
+    workflow: "PATIENT_VERIFICATION",
+    state: "NEW_PATIENT_CANDIDATE",
+    context: {
+      patientVerified: false,
+      canDisclosePatientData: false,
+      patientType: "NEW_PATIENT"
+    }
+  };
+
+  const replay = applyWorkflowToolResultPolicies(call, "VERIFY_PATIENT", { ok: true });
+
+  assert.equal(replay?.overrideResult?.toolRequest?.name, "BOOK_APPOINTMENT");
+  assert.equal(call.newPatientBookingCandidate, true);
+  assert.equal(call.pendingPatientWorkflow, undefined);
+});
+
+test("clears the new-patient candidate after booking completes", () => {
+  const call = session({ currentIntent: "BOOK_APPOINTMENT" });
+  call.newPatientBookingCandidate = true;
+
+  applyWorkflowToolResultPolicies(call, "BOOK_APPOINTMENT", {
+    ok: true,
+    workflowState: { state: "COMPLETED" }
+  });
+
+  assert.equal(call.newPatientBookingCandidate, false);
+});
+
 test("forces fresh appointment lookup for follow-up questions after confirmation", () => {
   const decision = applyWorkflowTurnPolicies(session({
     collectedFields: {

@@ -49,6 +49,33 @@ export function isBookingDateRangeValid(fromDate: unknown, toDate: unknown): boo
   return differenceInDays >= 0 && differenceInDays <= 7;
 }
 
+export function isBookingDatePreferenceValid(
+  value: unknown,
+  timezone: string | undefined,
+  nowIso: string
+): boolean {
+  if (typeof value !== "string" || value.trim() === "") {
+    return false;
+  }
+
+  const normalized = normalizeBookingDatePreference(value, timezone, nowIso);
+  return parseNormalizedDate(normalized) !== undefined;
+}
+
+export function addDaysToBookingDate(value: unknown, days: number): string | undefined {
+  const date = parseNormalizedDate(value);
+  if (date === undefined || !Number.isInteger(days)) {
+    return undefined;
+  }
+
+  date.setUTCDate(date.getUTCDate() + days);
+  return formatDate({
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
+    year: date.getUTCFullYear()
+  });
+}
+
 function parseExplicitDate(value: string): string | undefined {
   const slash = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (slash !== null) {

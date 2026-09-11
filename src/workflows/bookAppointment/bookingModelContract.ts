@@ -13,6 +13,8 @@ const bookingFields = z.object({
   bookingReason: textField,
   appointmentTypeId: z.number().int().positive().nullable().optional(),
   providerName: textField,
+  patientPhone: textField,
+  patientEmail: textField,
   datePreference: textField,
   timePreference: textField,
   slotDate: textField,

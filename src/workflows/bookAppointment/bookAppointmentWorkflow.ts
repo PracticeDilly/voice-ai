@@ -135,7 +135,7 @@ function isPrematureBookingHandoff(session: CallSession, result: ModelTurnResult
 
 function isRecoverableAvailabilityState(session: CallSession): boolean {
   return session.workflowState?.workflow === "BOOK_APPOINTMENT"
-    && ["NEEDS_SCHEDULING_PREFERENCE", "NEEDS_PROVIDER_SELECTION", "SELECT_SLOT"].includes(session.workflowState.state);
+    && ["NEEDS_NEW_PATIENT_DATA", "NEEDS_SCHEDULING_PREFERENCE", "NEEDS_PROVIDER_SELECTION", "SELECT_SLOT"].includes(session.workflowState.state);
 }
 
 function hasBookingField(fields: Record<string, unknown> | undefined): boolean {
@@ -143,7 +143,7 @@ function hasBookingField(fields: Record<string, unknown> | undefined): boolean {
 
   const bookingFields = [
     "firstName", "lastName", "dob", "bookingReason", "appointmentTypeId",
-    "providerName", "datePreference", "timePreference", "slotDate", "slotTime", "fromDate", "toDate",
+    "providerName", "patientPhone", "patientEmail", "datePreference", "timePreference", "slotDate", "slotTime", "fromDate", "toDate",
     "callerConfirmedBooking"
   ];
   return bookingFields.some((field) => fields[field] !== undefined && fields[field] !== null && fields[field] !== "");

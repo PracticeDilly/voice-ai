@@ -13,14 +13,23 @@ test("builds a compact workflow-oriented prompt", () => {
   assert.doesNotMatch(prompt, /CREATE_HANDOFF_REQUEST/);
   assert.doesNotMatch(prompt, /GETevant|reldo/);
   assert.match(prompt, /"requiredArguments":\["firstName","dob","bookingReason","appointmentTypeId"\]/);
-  assert.match(prompt, /Store date of birth as dob, never dateOfBirth/);
-  assert.match(prompt, /never ask the caller whether they are a returning patient/i);
+  assert.match(prompt, /Store DOB as dob, never dateOfBirth/);
+  assert.match(prompt, /without asking whether the caller is new/i);
   assert.match(prompt, /do not ask for or require last name/i);
   assert.match(prompt, /always derive the closest eligible appointment type/i);
-  assert.match(prompt, /if the caller says dental implants/i);
-  assert.match(prompt, /fromDate and toDate/i);
-  assert.match(prompt, /seven-day search window/i);
+  assert.match(prompt, /For new patients/i);
+  assert.match(prompt, /fromDate\/toDate/i);
+  assert.match(prompt, /Search from the requested date through seven calendar days after it/i);
+  assert.match(prompt, /maximum allowed difference between fromDate and toDate is 7 days/i);
   assert.ok(prompt.length < 11000, `prompt is too long: ${prompt.length}`);
+});
+
+test("uses the office-local current date in the prompt", () => {
+  const callSession = session();
+  callSession.startedAt = "2026-08-17T02:30:00.000Z";
+  callSession.officeContext!.timezone = "America/Los_Angeles";
+
+  assert.match(buildSystemPrompt(callSession), /Current date: 2026-08-16/);
 });
 
 test("includes appointment type eligibility and context-only provider instructions", () => {
@@ -31,8 +40,9 @@ test("includes appointment type eligibility and context-only provider instructio
   };
   const prompt = buildSystemPrompt(callSession);
   assert.ok(prompt.includes(JSON.stringify(callSession.officeContext!.appointmentTypes)));
-  assert.match(prompt, /Never select from NEW_PATIENT/);
-  assert.match(prompt, /copy their names exactly/);
+  assert.match(prompt, /Backend determines RETURNING_PATIENT vs NEW_PATIENT/);
+  assert.match(prompt, /appointmentTypes catalog/);
+  assert.match(prompt, /copy names exactly/);
   assert.match(prompt, /Preserve bookingReason/);
   assert.doesNotMatch(prompt, /selected from office context providers or backend providerOptions/);
 });

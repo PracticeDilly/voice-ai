@@ -95,6 +95,7 @@ export interface CallSession {
   lastToolResults: Record<string, unknown>;
   pendingActions: PendingActions;
   pendingPatientWorkflow?: PendingPatientWorkflowAction;
+  newPatientBookingCandidate?: boolean;
   verifiedIdentityFingerprint?: string;
   appointmentSelections: AppointmentSelections;
 }

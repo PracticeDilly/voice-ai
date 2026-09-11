@@ -28,7 +28,7 @@ test("prepares booking request with caller number and collected conversational f
   assert.equal(prepared.arguments.fromNumber, "+15551234567");
 });
 
-test("derives an exact availability range from a requested date", () => {
+test("expands a requested date into the full seven-day availability window", () => {
   const callSession = session();
   callSession.officeContext = {
     officeCode: "OFC001",
@@ -43,7 +43,7 @@ test("derives an exact availability range from a requested date", () => {
   });
 
   assert.equal(prepared.arguments.fromDate, "09/04/2026");
-  assert.equal(prepared.arguments.toDate, "09/04/2026");
+  assert.equal(prepared.arguments.toDate, "09/11/2026");
 });
 
 test("preserves the model-provided availability range", () => {
@@ -144,6 +144,28 @@ test("normalizes model booking date preferences", () => {
   assert.equal(prepared.arguments.timePreference, "morning");
 });
 
+test("rejects unsupported booking date expressions before the backend call", () => {
+  const callSession = session();
+  const adapter = new BookAppointmentToolAdapter();
+  const prepared = adapter.prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: { datePreference: "next week" }
+  });
+
+  assert.match(adapter.validateTool(callSession, prepared) ?? "", /specific valid appointment date/);
+});
+
+test("rejects impossible calendar dates before the backend call", () => {
+  const callSession = session();
+  const adapter = new BookAppointmentToolAdapter();
+  const prepared = adapter.prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: { datePreference: "02/31/2026" }
+  });
+
+  assert.match(adapter.validateTool(callSession, prepared) ?? "", /specific valid appointment date/);
+});
+
 test("rejects final booking before backend confirmation state", () => {
   const error = new BookAppointmentToolAdapter().validateTool(session(), {
     name: "BOOK_APPOINTMENT",
@@ -179,7 +201,28 @@ test("allows final booking after backend confirmation state with selected slot",
   assert.equal(error, undefined);
 });
 
-test("maps selected booking time preference to backend slot fields", () => {
+test("rejects a selected slot that was not returned by availability", () => {
+  const callSession = session();
+  callSession.workflowState = {
+    contractVersion: 1,
+    workflow: "BOOK_APPOINTMENT",
+    state: "REQUIRES_CONFIRMATION",
+    context: {
+      slotDate: "09/04/2026",
+      slotTime: "09:00 AM",
+      slots: [{ slotDate: "09/04/2026", slotTime: "10:00 AM" }]
+    }
+  };
+
+  const error = new BookAppointmentToolAdapter().validateTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: { callerConfirmedBooking: true }
+  });
+
+  assert.match(error ?? "", /slot returned by the availability search/);
+});
+
+test("does not convert a conversational time preference into a slot selection", () => {
   const callSession = session();
   callSession.workflowState = {
     contractVersion: 1,
@@ -200,8 +243,9 @@ test("maps selected booking time preference to backend slot fields", () => {
     }
   });
 
-  assert.equal(prepared.arguments.slotDate, "09/08/2026");
-  assert.equal(prepared.arguments.slotTime, "10:10 AM");
+  assert.equal(prepared.arguments.slotDate, undefined);
+  assert.equal(prepared.arguments.slotTime, undefined);
+  assert.equal(prepared.arguments.timePreference, "10:10AM");
 });
 
 test("validates returning-patient type and provider on active booking turns", () => {
@@ -234,6 +278,34 @@ test("validates returning-patient type and provider on active booking turns", ()
   assert.match(adapter.validateTool(callSession, {
     ...prepared, arguments: { ...prepared.arguments, providerName: "Widget-only provider" }
   }) ?? "", /office context only/);
+});
+
+test("validates new-patient appointment types from the new-patient catalog", () => {
+  const callSession = session();
+  callSession.officeContext = {
+    officeCode: "OFC001", timezone: "America/Los_Angeles",
+    appointmentTypes: {
+      RETURNING_PATIENT: [{ appointmentTypeId: 12, type: "Cleaning", duration: 60 }],
+      NEW_PATIENT: [{ appointmentTypeId: 13, type: "Initial exam", duration: 90 }]
+    }
+  };
+  callSession.workflowState = {
+    contractVersion: 1,
+    workflow: "BOOK_APPOINTMENT",
+    state: "SELECT_SLOT",
+    context: { patientType: "NEW_PATIENT" }
+  };
+
+  const adapter = new BookAppointmentToolAdapter();
+  const prepared = adapter.prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: { appointmentTypeId: 13 }
+  });
+
+  assert.equal(adapter.validateTool(callSession, prepared), undefined);
+  assert.match(adapter.validateTool(callSession, {
+    ...prepared, arguments: { ...prepared.arguments, appointmentTypeId: 12 }
+  }) ?? "", /NEW_PATIENT/);
 });
 
 function session(): CallSession {

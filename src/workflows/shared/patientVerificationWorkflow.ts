@@ -58,6 +58,10 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
       return undefined;
     }
 
+    if (requestedTool.name === "BOOK_APPOINTMENT" && isNewPatientBookingCandidate(session)) {
+      return undefined;
+    }
+
     session.pendingPatientWorkflow = pendingAction(requestedTool);
     return {
       overrideResult: {
@@ -71,15 +75,41 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
   },
 
   applyToolResultPolicy(session: CallSession, toolName: string, toolResult: unknown): ToolPolicyDecision | undefined {
+    if (toolName === "BOOK_APPOINTMENT" && isCompletedBookingResult(toolResult)) {
+      session.newPatientBookingCandidate = false;
+      return undefined;
+    }
+
     if (toolName !== verificationToolName) {
       return undefined;
     }
 
-    if (!isSuccessfulToolResult(toolResult) || !isVerifiedWorkflowState(session)) {
+    if (!isSuccessfulToolResult(toolResult)) {
       delete session.verifiedIdentityFingerprint;
       return undefined;
     }
 
+    if (isNewPatientCandidateState(session) && session.pendingPatientWorkflow?.name === "BOOK_APPOINTMENT") {
+      session.newPatientBookingCandidate = true;
+      const pending = session.pendingPatientWorkflow;
+      delete session.pendingPatientWorkflow;
+      return {
+        overrideResult: {
+          intent: pending.name,
+          toolRequest: {
+            name: pending.name,
+            arguments: pending.arguments
+          }
+        }
+      };
+    }
+
+    if (!isVerifiedWorkflowState(session)) {
+      delete session.verifiedIdentityFingerprint;
+      return undefined;
+    }
+
+    session.newPatientBookingCandidate = false;
     session.verifiedIdentityFingerprint = identityFingerprint(session);
 
     const pending = session.pendingPatientWorkflow;
@@ -160,6 +190,16 @@ function isPatientVerified(session: CallSession): boolean {
     && session.verifiedIdentityFingerprint === identityFingerprint(session);
 }
 
+function isNewPatientBookingCandidate(session: CallSession): boolean {
+  return session.newPatientBookingCandidate === true
+    && normalizedIntent(session.currentIntent) === "BOOK_APPOINTMENT";
+}
+
+function isNewPatientCandidateState(session: CallSession): boolean {
+  return session.workflowState?.state === "NEW_PATIENT_CANDIDATE"
+    && session.workflowState.context?.patientType === "NEW_PATIENT";
+}
+
 function isVerifiedWorkflowState(session: CallSession): boolean {
   return session.workflowState?.context?.patientVerified === true
     && session.workflowState.context.canDisclosePatientData === true;
@@ -174,6 +214,17 @@ function isSuccessfulToolResult(toolResult: unknown): boolean {
     && toolResult !== null
     && "ok" in toolResult
     && (toolResult as { ok?: unknown }).ok === true;
+}
+
+function isCompletedBookingResult(toolResult: unknown): boolean {
+  if (!toolResult || typeof toolResult !== "object") {
+    return false;
+  }
+
+  const workflowState = (toolResult as { workflowState?: unknown }).workflowState;
+  return typeof workflowState === "object"
+    && workflowState !== null
+    && (workflowState as { state?: unknown }).state === "COMPLETED";
 }
 
 function textValue(value: unknown): string | undefined {
