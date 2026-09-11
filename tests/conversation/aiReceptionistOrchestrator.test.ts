@@ -81,6 +81,45 @@ test("contract repair exhaustion hands off without the booking policy issuing an
   assert.equal(outcome.shouldTransferToStaff, true);
 });
 
+test("does not transfer when identity policy suppresses an inferred transfer", async () => {
+  const sessions = new CallSessionStore();
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  const session = sessions.create({ callSid: "CA-identity-transfer", officeCode: "TEST" });
+  session.currentIntent = "BOOK_APPOINTMENT";
+  session.collectedFields.firstName = "Nancy";
+  session.workflowState = {
+    contractVersion: 1,
+    workflow: "PATIENT_VERIFICATION",
+    state: "FAILED",
+    allowedActions: ["VERIFY_PATIENT", "TRANSFER_TO_STAFF"],
+    failureReason: "FIRST_NAME_NO_MATCH",
+    context: {
+      patientVerified: false,
+      canDisclosePatientData: false
+    }
+  };
+  session.pendingActions.VERIFY_PATIENT_IDENTITY = {
+    status: "NEEDS_NAME_SPELLING",
+    value: "Nancy",
+    createdAt: "2026-09-11T00:00:00.000Z"
+  };
+
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      return {
+        intent: "BOOK_APPOINTMENT",
+        collectedFields: { firstName: "Nancy" },
+        toolRequest: { name: "TRANSFER_TO_STAFF", arguments: {} }
+      };
+    }
+  } });
+
+  const outcome = await orchestrator.handleCallerText(session, "Yes", { recordCallerTurn: false });
+
+  assert.equal(outcome.shouldTransferToStaff, false);
+  assert.match(outcome.reply, /spell your first name/i);
+});
+
 function bookingHarness(followups: ModelTurnResult[], states: string[]) {
   const sessions = new CallSessionStore();
   const session = sessions.create({ callSid: "CA-booking-followup", officeCode: "TEST" });

@@ -230,26 +230,39 @@ function identityArguments(session: CallSession, result: ModelTurnResult): Recor
 }
 
 function retryIdentityCorrection(session: CallSession, result: ModelTurnResult): ToolPolicyDecision | undefined {
-  const pendingStatus = session.pendingActions.VERIFY_PATIENT_IDENTITY?.status;
-  if (result.toolRequest || !pendingStatus) {
+  const pendingCorrection = session.pendingActions.VERIFY_PATIENT_IDENTITY;
+  if (!pendingCorrection || callerActionRequestsStaffTransfer(result)) {
     return undefined;
   }
 
-  const correctedField = pendingStatus === "NEEDS_NAME_SPELLING" ? "firstName" : "dob";
-  if (!textValue(result.collectedFields?.[correctedField])) {
-    return undefined;
+  const correctedField = pendingCorrection.status === "NEEDS_NAME_SPELLING" ? "firstName" : "dob";
+  const correctedValue = textValue(result.collectedFields?.[correctedField]);
+  if (correctedValue && !sameIdentityValue(correctedValue, pendingCorrection.value)) {
+    return {
+      overrideResult: {
+        ...result,
+        intent: session.currentIntent ?? result.intent,
+        toolRequest: {
+          name: verificationToolName,
+          arguments: identityArguments(session, result)
+        }
+      },
+      instruction: "Retry patient verification using the corrected identity value supplied by the caller."
+    };
   }
 
   return {
     overrideResult: {
       ...result,
       intent: session.currentIntent ?? result.intent,
-      toolRequest: {
-        name: verificationToolName,
-        arguments: identityArguments(session, result)
-      }
+      reply: pendingCorrection.status === "NEEDS_NAME_SPELLING"
+        ? "I couldn't match that first name to the record linked to this phone number. Could you please spell your first name?"
+        : "I couldn't match that date of birth to the record linked to this phone number. Could you please repeat your date of birth?",
+      callerAction: undefined,
+      toolRequest: undefined,
+      shouldEndCall: false
     },
-    instruction: "Retry patient verification using the corrected identity value supplied by the caller."
+    instruction: "Do not retry verification with the same identity value. Ask only for the requested correction and wait for the caller's corrected value."
   };
 }
 
@@ -258,11 +271,13 @@ function rememberIdentityCorrection(session: CallSession): void {
   if (reason === "FIRST_NAME_NO_MATCH") {
     session.pendingActions.VERIFY_PATIENT_IDENTITY = {
       status: "NEEDS_NAME_SPELLING",
+      value: textValue(session.collectedFields.firstName),
       createdAt: new Date().toISOString()
     };
   } else if (reason === "DOB_NO_MATCH") {
     session.pendingActions.VERIFY_PATIENT_IDENTITY = {
       status: "NEEDS_DOB_CORRECTION",
+      value: textValue(session.collectedFields.dob ?? session.collectedFields.dateOfBirth),
       createdAt: new Date().toISOString()
     };
   }
@@ -386,6 +401,10 @@ function textValue(value: unknown): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function sameIdentityValue(left: string, right: string | undefined): boolean {
+  return right !== undefined && left.trim().toLocaleLowerCase() === right.trim().toLocaleLowerCase();
 }
 
 function normalizedIntent(value: string | undefined): string | undefined {

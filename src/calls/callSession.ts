@@ -54,6 +54,7 @@ export interface PendingActions {
   };
   VERIFY_PATIENT_IDENTITY?: {
     status: "NEEDS_NAME_SPELLING" | "NEEDS_DOB_CORRECTION";
+    value?: string;
     createdAt: string;
   };
 }

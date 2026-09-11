@@ -223,6 +223,65 @@ test("retries verification with the corrected first-name spelling", () => {
   assert.equal(decision?.overrideResult?.toolRequest?.arguments.firstName, "Maddie");
 });
 
+test("prioritizes a corrected first name over an inferred transfer", () => {
+  const call = session({
+    currentIntent: "NEXT_APPOINTMENT",
+    pendingIdentityStatus: "NEEDS_NAME_SPELLING",
+    workflowState: {
+      contractVersion: 1,
+      workflow: "PATIENT_VERIFICATION",
+      state: "FAILED",
+      allowedActions: ["VERIFY_PATIENT", "TRANSFER_TO_STAFF"],
+      failureReason: "FIRST_NAME_NO_MATCH",
+      context: {
+        patientVerified: false,
+        canDisclosePatientData: false
+      }
+    }
+  });
+
+  const decision = applyWorkflowTurnPolicies(call, {
+    intent: "NEXT_APPOINTMENT",
+    collectedFields: { firstName: "Mary" },
+    toolRequest: { name: "TRANSFER_TO_STAFF", arguments: {} }
+  });
+
+  assert.equal(decision?.overrideResult?.toolRequest?.name, "VERIFY_PATIENT");
+  assert.equal(decision?.overrideResult?.toolRequest?.arguments.firstName, "Mary");
+});
+
+test("does not retry the same identity value after a first-name mismatch", () => {
+  const call = session({
+    currentIntent: "BOOK_APPOINTMENT",
+    collectedFields: { firstName: "Nancy" },
+    pendingIdentityStatus: "NEEDS_NAME_SPELLING",
+    workflowState: {
+      contractVersion: 1,
+      workflow: "PATIENT_VERIFICATION",
+      state: "FAILED",
+      allowedActions: ["VERIFY_PATIENT", "TRANSFER_TO_STAFF"],
+      failureReason: "FIRST_NAME_NO_MATCH",
+      context: {
+        patientVerified: false,
+        canDisclosePatientData: false
+      }
+    }
+  });
+  call.pendingActions.VERIFY_PATIENT_IDENTITY!.value = "Nancy";
+
+  const decision = applyWorkflowTurnPolicies(call, {
+    intent: "BOOK_APPOINTMENT",
+    collectedFields: { firstName: "Nancy", lastName: "Jones" },
+    toolRequest: {
+      name: "VERIFY_PATIENT",
+      arguments: { firstName: "Nancy" }
+    }
+  });
+
+  assert.equal(decision?.overrideResult?.toolRequest, undefined);
+  assert.match(decision?.overrideResult?.reply ?? "", /spell your first name/i);
+});
+
 test("clears the new-patient candidate after booking completes", () => {
   const call = session({ currentIntent: "BOOK_APPOINTMENT" });
   call.newPatientBookingCandidate = true;

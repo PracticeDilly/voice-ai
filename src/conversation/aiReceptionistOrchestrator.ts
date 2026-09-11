@@ -14,6 +14,7 @@ import { extractWorkflowEnvelope } from "../workflows/workflowState.js";
 import { ModelClient, ModelTurnResult } from "./modelClient.js";
 import { BookingWorkflowError } from "../workflows/bookAppointment/bookingModelContract.js";
 import { prepareBookingFollowup } from "../workflows/bookAppointment/bookingFollowup.js";
+import { callerActionRequestsStaffTransfer } from "../workflows/shared/callerActionDecision.js";
 
 export interface ConversationTurnOutcome {
   reply: string;
@@ -119,7 +120,7 @@ export class AiReceptionistOrchestrator {
       finalResult.intent = firstResult.intent;
     }
     const reply = finalResult.reply ?? "I am sorry, I could not complete that request.";
-    const transferToStaff = this.shouldTransferToStaff(firstResult, finalResult);
+    const transferToStaff = this.shouldTransferToStaff(session, firstResult, finalResult);
     const shouldEndSession = transferToStaff || finalResult.shouldEndCall === true;
 
     logger.info("AI turn completed", {
@@ -367,10 +368,23 @@ export class AiReceptionistOrchestrator {
     return this.resolvePolicyAwareModelResult(session, repromptResult);
   }
 
-  private shouldTransferToStaff(firstResult: ModelTurnResult, finalResult: ModelTurnResult): boolean {
-    return firstResult.toolRequest?.name === "TRANSFER_TO_STAFF"
-      || finalResult.toolRequest?.name === "TRANSFER_TO_STAFF"
-      || finalResult.intent === "TRANSFER_TO_STAFF";
+  private shouldTransferToStaff(
+    session: CallSession,
+    firstResult: ModelTurnResult,
+    finalResult: ModelTurnResult
+  ): boolean {
+    if (finalResult.toolRequest?.name === "TRANSFER_TO_STAFF"
+      || finalResult.intent === "TRANSFER_TO_STAFF") {
+      return true;
+    }
+
+    if (firstResult.toolRequest?.name !== "TRANSFER_TO_STAFF") {
+      return false;
+    }
+
+    const verificationBoundary = session.workflowState?.workflow === "PATIENT_VERIFICATION"
+      && ["FAILED", "HANDOFF_REQUIRED", "NEEDS_NEW_PATIENT_CONFIRMATION"].includes(session.workflowState.state);
+    return !verificationBoundary || callerActionRequestsStaffTransfer(firstResult);
   }
 
   private isTerminalIntent(intent: string | undefined): boolean {

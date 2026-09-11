@@ -28,6 +28,21 @@ test("prepares booking request with caller number and collected conversational f
   assert.equal(prepared.arguments.fromNumber, "+15551234567");
 });
 
+test("does not preserve a model placeholder as the patient phone", () => {
+  const callSession = session();
+  callSession.fromNumber = "+15551234567";
+
+  const prepared = new BookAppointmentToolAdapter().prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: {
+      patientPhone: "fromNumber"
+    }
+  });
+
+  assert.equal(prepared.arguments.patientPhone, undefined);
+  assert.equal(prepared.arguments.fromNumber, "+15551234567");
+});
+
 test("expands a requested date into the full seven-day availability window", () => {
   const callSession = session();
   callSession.officeContext = {

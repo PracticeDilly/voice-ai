@@ -64,9 +64,21 @@ export function normalizeBookingArguments(
 }
 
 function copyKnownValue(target: Record<string, unknown>, fieldName: string, value: unknown): void {
+  if (fieldName === "patientPhone" && isPlaceholderPhoneValue(value)) {
+    return;
+  }
   if (value !== undefined && value !== null && value !== "") {
     target[fieldName] = value;
   }
+}
+
+function isPlaceholderPhoneValue(value: unknown): boolean {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  return ["fromnumber", "patientphone", "true", "false", "null", "undefined"]
+    .includes(value.trim().toLowerCase());
 }
 
 function applySingleOfficeContextProvider(target: Record<string, unknown>, session: CallSession): void {
