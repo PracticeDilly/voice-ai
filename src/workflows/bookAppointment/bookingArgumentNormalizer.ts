@@ -16,6 +16,8 @@ const bookingFieldNames = [
   "timePreference",
   "slotDate",
   "slotTime",
+  "fromDate",
+  "toDate",
   "callerConfirmedBooking"
 ];
 
@@ -37,6 +39,18 @@ export function normalizeBookingArguments(
     session.startedAt
   );
   copyKnownValue(normalized, "datePreference", datePreference);
+  const fromDate = normalizeBookingDatePreference(
+    normalized.fromDate ?? normalized.datePreference,
+    session.officeContext?.timezone,
+    session.startedAt
+  );
+  const toDate = normalizeBookingDatePreference(
+    normalized.toDate ?? fromDate,
+    session.officeContext?.timezone,
+    session.startedAt
+  );
+  copyKnownValue(normalized, "fromDate", fromDate);
+  copyKnownValue(normalized, "toDate", toDate);
 
   copyKnownValue(normalized, "slotDate", toolArguments?.slotDate ?? session.workflowState?.context?.slotDate);
   copyKnownValue(normalized, "slotTime", toolArguments?.slotTime ?? session.workflowState?.context?.slotTime);

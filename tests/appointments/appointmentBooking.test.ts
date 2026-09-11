@@ -28,6 +28,38 @@ test("prepares booking request with caller number and collected conversational f
   assert.equal(prepared.arguments.fromNumber, "+15551234567");
 });
 
+test("derives an exact availability range from a requested date", () => {
+  const callSession = session();
+  callSession.officeContext = {
+    officeCode: "OFC001",
+    timezone: "America/Los_Angeles"
+  };
+
+  const prepared = new BookAppointmentToolAdapter().prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: {
+      datePreference: "09/04/2026"
+    }
+  });
+
+  assert.equal(prepared.arguments.fromDate, "09/04/2026");
+  assert.equal(prepared.arguments.toDate, "09/04/2026");
+});
+
+test("preserves the model-provided availability range", () => {
+  const callSession = session();
+  const prepared = new BookAppointmentToolAdapter().prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: {
+      fromDate: "09/04/2026",
+      toDate: "09/11/2026"
+    }
+  });
+
+  assert.equal(prepared.arguments.fromDate, "09/04/2026");
+  assert.equal(prepared.arguments.toDate, "09/11/2026");
+});
+
 test("keeps initial provider name when it matches office context", () => {
   const callSession = session();
   callSession.officeContext = {

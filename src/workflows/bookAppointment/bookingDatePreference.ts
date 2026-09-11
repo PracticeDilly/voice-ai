@@ -38,6 +38,17 @@ export function normalizeBookingDatePreference(
   return formatDate(addDays(today, offset));
 }
 
+export function isBookingDateRangeValid(fromDate: unknown, toDate: unknown): boolean {
+  const from = parseNormalizedDate(fromDate);
+  const to = parseNormalizedDate(toDate);
+  if (from === undefined || to === undefined) {
+    return false;
+  }
+
+  const differenceInDays = Math.round((to.getTime() - from.getTime()) / 86_400_000);
+  return differenceInDays >= 0 && differenceInDays <= 7;
+}
+
 function parseExplicitDate(value: string): string | undefined {
   const slash = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (slash !== null) {
@@ -50,6 +61,26 @@ function parseExplicitDate(value: string): string | undefined {
   }
 
   return undefined;
+}
+
+function parseNormalizedDate(value: unknown): Date | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (match === null) {
+    return undefined;
+  }
+
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  const year = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    return undefined;
+  }
+  return date;
 }
 
 function localDateParts(timezone: string | undefined, nowIso: string): DateParts {

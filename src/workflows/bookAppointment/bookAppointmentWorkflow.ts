@@ -143,7 +143,7 @@ function hasBookingField(fields: Record<string, unknown> | undefined): boolean {
 
   const bookingFields = [
     "firstName", "lastName", "dob", "bookingReason", "appointmentTypeId",
-    "providerName", "datePreference", "timePreference", "slotDate", "slotTime",
+    "providerName", "datePreference", "timePreference", "slotDate", "slotTime", "fromDate", "toDate",
     "callerConfirmedBooking"
   ];
   return bookingFields.some((field) => fields[field] !== undefined && fields[field] !== null && fields[field] !== "");

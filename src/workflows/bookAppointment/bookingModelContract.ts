@@ -17,6 +17,8 @@ const bookingFields = z.object({
   timePreference: textField,
   slotDate: textField,
   slotTime: textField,
+  fromDate: textField,
+  toDate: textField,
   callerConfirmedBooking: z.boolean().nullable().optional()
 }).strict();
 

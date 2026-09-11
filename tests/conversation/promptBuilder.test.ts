@@ -16,6 +16,10 @@ test("builds a compact workflow-oriented prompt", () => {
   assert.match(prompt, /Store date of birth as dob, never dateOfBirth/);
   assert.match(prompt, /never ask the caller whether they are a returning patient/i);
   assert.match(prompt, /do not ask for or require last name/i);
+  assert.match(prompt, /always derive the closest eligible appointment type/i);
+  assert.match(prompt, /if the caller says dental implants/i);
+  assert.match(prompt, /fromDate and toDate/i);
+  assert.match(prompt, /seven-day search window/i);
   assert.ok(prompt.length < 11000, `prompt is too long: ${prompt.length}`);
 });
 

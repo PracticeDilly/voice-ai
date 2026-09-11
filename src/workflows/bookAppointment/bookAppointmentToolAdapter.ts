@@ -2,6 +2,7 @@ import { ToolRequest } from "../../backend/springBootClient.js";
 import { CallSession } from "../../calls/callSession.js";
 import { logger } from "../../utils/logger.js";
 import { WorkflowToolAdapter } from "../shared/workflowTypes.js";
+import { isBookingDateRangeValid } from "./bookingDatePreference.js";
 import { normalizeBookingArguments } from "./bookingArgumentNormalizer.js";
 import { providerNameMatchesOfficeContext } from "./officeContextProviders.js";
 
@@ -44,6 +45,12 @@ export class BookAppointmentToolAdapter implements WorkflowToolAdapter {
     if (appointmentTypeId !== undefined && !session.officeContext?.appointmentTypes?.RETURNING_PATIENT
       ?.some((type) => type.appointmentTypeId === appointmentTypeId && type.duration > 0)) {
       return "Select an eligible RETURNING_PATIENT appointmentTypeId from office context based on bookingReason; clarify when ambiguous.";
+    }
+
+    if (tool.arguments?.fromDate !== undefined || tool.arguments?.toDate !== undefined) {
+      if (!isBookingDateRangeValid(tool.arguments?.fromDate, tool.arguments?.toDate)) {
+        return "Booking availability requires valid fromDate and toDate values covering no more than seven days.";
+      }
     }
 
     if (tool.arguments?.callerConfirmedBooking !== true) {
