@@ -169,8 +169,55 @@ test("requires explicit consent before continuing as a new patient", () => {
     }
   });
 
-  assert.equal(decision?.overrideResult?.toolRequest?.name, "VERIFY_PATIENT");
+  assert.equal(decision?.overrideResult?.toolRequest?.name, "BOOK_APPOINTMENT");
   assert.equal(decision?.overrideResult?.toolRequest?.arguments.continueAsNewPatient, true);
+  assert.equal(call.newPatientBookingCandidate, true);
+  assert.equal(call.collectedFields.continueAsNewPatient, true);
+});
+
+test("starts new-patient booking directly after explicit consent following an identity mismatch", () => {
+  const call = session({
+    currentIntent: "BOOK_APPOINTMENT",
+    collectedFields: {
+      firstName: "Nancy",
+      lastName: "Jones",
+      dob: "11/16/2011",
+      bookingReason: "dental implants"
+    },
+    workflowState: {
+      contractVersion: 1,
+      workflow: "PATIENT_VERIFICATION",
+      state: "FAILED",
+      allowedActions: ["VERIFY_PATIENT", "TRANSFER_TO_STAFF"],
+      failureReason: "FIRST_NAME_NO_MATCH",
+      context: {
+        patientVerified: false,
+        canDisclosePatientData: false
+      }
+    }
+  });
+  call.pendingActions.VERIFY_PATIENT_IDENTITY = {
+    status: "NEEDS_NAME_SPELLING",
+    value: "Nancy",
+    createdAt: "2026-09-11T00:00:00.000Z"
+  };
+
+  const decision = applyWorkflowTurnPolicies(call, {
+    intent: "BOOK_APPOINTMENT",
+    callerAction: {
+      speechAct: "AUTHORIZATION",
+      workflowIntent: "BOOK_APPOINTMENT",
+      authorization: {
+        stateChangingAction: "CONTINUE_AS_NEW_PATIENT",
+        isExplicit: true
+      }
+    }
+  });
+
+  assert.equal(decision?.overrideResult?.toolRequest?.name, "BOOK_APPOINTMENT");
+  assert.equal(decision?.overrideResult?.toolRequest?.arguments.continueAsNewPatient, true);
+  assert.equal(call.newPatientBookingCandidate, true);
+  assert.equal(call.pendingActions.VERIFY_PATIENT_IDENTITY, undefined);
 });
 
 test("does not transfer after an unsuccessful verification without caller authorization", () => {

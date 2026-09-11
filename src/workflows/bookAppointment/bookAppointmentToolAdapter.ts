@@ -44,7 +44,8 @@ export class BookAppointmentToolAdapter implements WorkflowToolAdapter {
       return "Select a provider from office context only; clarify the caller's preference without offering widget providers.";
     }
     const appointmentTypeId = tool.arguments?.appointmentTypeId;
-    const patientType = session.workflowState?.context?.patientType === "NEW_PATIENT"
+    const patientType = session.newPatientBookingCandidate === true
+      || session.workflowState?.context?.patientType === "NEW_PATIENT"
       ? "NEW_PATIENT"
       : "RETURNING_PATIENT";
     if (appointmentTypeId !== undefined && !session.officeContext?.appointmentTypes?.[patientType]

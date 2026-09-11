@@ -40,6 +40,12 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
   toolAdapter: patientVerificationToolAdapter,
 
   applyTurnPolicy(session: CallSession, result: ModelTurnResult): ToolPolicyDecision | undefined {
+    if (isBookingIntent(session.currentIntent)
+      && callerActionExplicitlyAuthorizesNewPatient(result)
+      && isNewPatientBookingTransitionState(session)) {
+      return continueAsNewPatientBooking(session, result);
+    }
+
     const correctionRetry = retryIdentityCorrection(session, result);
     if (correctionRetry) {
       return correctionRetry;
@@ -47,12 +53,6 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
 
     const requestedTool = result.toolRequest;
     if (!requestedTool) {
-      if (isNewPatientConfirmationState(session)
-        && callerActionExplicitlyAuthorizesNewPatient(result)
-        && isBookingIntent(session.currentIntent)) {
-        ensurePendingBooking(session, result);
-        return verifyForNewPatient(session, result);
-      }
       if (isUnauthorizedTransfer(session, result)) {
         return transferConfirmationDecision(session);
       }
@@ -292,15 +292,43 @@ function ensurePendingBooking(session: CallSession, result: ModelTurnResult): vo
   }
 }
 
-function verifyForNewPatient(session: CallSession, result: ModelTurnResult): ToolPolicyDecision {
+function continueAsNewPatientBooking(session: CallSession, result: ModelTurnResult): ToolPolicyDecision {
+  session.collectedFields = {
+    ...session.collectedFields,
+    ...(result.collectedFields ?? {}),
+    continueAsNewPatient: true
+  };
+  delete session.pendingActions.VERIFY_PATIENT_IDENTITY;
+  session.newPatientBookingCandidate = true;
+  ensurePendingBooking(session, result);
+
+  const pending = session.pendingPatientWorkflow;
+  if (!pending) {
+    return {
+      overrideResult: {
+        ...result,
+        intent: "BOOK_APPOINTMENT",
+        toolRequest: {
+          name: "BOOK_APPOINTMENT",
+          arguments: {
+            ...session.collectedFields,
+            continueAsNewPatient: true
+          }
+        }
+      }
+    };
+  }
+
+  delete session.pendingPatientWorkflow;
   return {
     overrideResult: {
       ...result,
       intent: "BOOK_APPOINTMENT",
       toolRequest: {
-        name: verificationToolName,
+        name: "BOOK_APPOINTMENT",
         arguments: {
-          ...identityArguments(session, result),
+          ...pending.arguments,
+          ...session.collectedFields,
           continueAsNewPatient: true
         }
       }
@@ -311,6 +339,20 @@ function verifyForNewPatient(session: CallSession, result: ModelTurnResult): Too
 function isNewPatientConfirmationState(session: CallSession): boolean {
   return session.workflowState?.workflow === "PATIENT_VERIFICATION"
     && session.workflowState.state === "NEEDS_NEW_PATIENT_CONFIRMATION";
+}
+
+function isNewPatientBookingTransitionState(session: CallSession): boolean {
+  if (session.workflowState?.workflow !== "PATIENT_VERIFICATION") {
+    return false;
+  }
+
+  if (isNewPatientConfirmationState(session)) {
+    return true;
+  }
+
+  return session.workflowState.state === "FAILED"
+    && ["NO_EXISTING_PATIENT_RECORD", "PHONE_NO_MATCH", "FIRST_NAME_NO_MATCH", "DOB_NO_MATCH"]
+      .includes(session.workflowState.failureReason ?? "");
 }
 
 function isUnauthorizedTransfer(session: CallSession, result: ModelTurnResult): boolean {

@@ -16,6 +16,8 @@ import { BookingWorkflowError } from "../workflows/bookAppointment/bookingModelC
 import { prepareBookingFollowup } from "../workflows/bookAppointment/bookingFollowup.js";
 import { callerActionRequestsStaffTransfer } from "../workflows/shared/callerActionDecision.js";
 
+const MAX_PATIENT_VERIFICATION_TOOL_CHAIN_DEPTH = 3;
+
 export interface ConversationTurnOutcome {
   reply: string;
   assistantMetadata?: Record<string, unknown>;
@@ -200,10 +202,33 @@ export class AiReceptionistOrchestrator {
     });
   }
 
-  private async resolveModelResult(session: CallSession, result: ModelTurnResult, bookingFollowups = 0): Promise<ModelTurnResult> {
+  private async resolveModelResult(
+    session: CallSession,
+    result: ModelTurnResult,
+    bookingFollowups = 0,
+    toolChainDepth = 0
+  ): Promise<ModelTurnResult> {
     if (!result.toolRequest) {
       return result;
     }
+
+    if (result.toolRequest.name === "VERIFY_PATIENT"
+      && toolChainDepth >= MAX_PATIENT_VERIFICATION_TOOL_CHAIN_DEPTH) {
+      logger.warn("Patient verification tool chain limit reached", {
+        callSid: session.callSid,
+        officeCode: session.officeCode,
+        toolChainDepth,
+        workflowStateSummary: this.workflowStateSummary(session)
+      });
+      return {
+        ...result,
+        intent: session.currentIntent ?? result.intent,
+        reply: "I'm still unable to verify your information. Would you like me to connect you with our office staff?",
+        toolRequest: undefined,
+        shouldEndCall: false
+      };
+    }
+
     promoteConfirmAppointmentPendingAction(session, result);
 
     const toolStartedAt = Date.now();
@@ -245,7 +270,7 @@ export class AiReceptionistOrchestrator {
 
     const toolPolicyDecision = applyWorkflowToolResultPolicies(session, result.toolRequest.name, toolResult);
     if (toolPolicyDecision?.overrideResult) {
-      return this.resolveModelResult(session, toolPolicyDecision.overrideResult);
+      return this.resolveModelResult(session, toolPolicyDecision.overrideResult, bookingFollowups, toolChainDepth + 1);
     }
     if (toolPolicyDecision?.repromptContext) {
       return this.continueFromPolicyReprompt(
@@ -274,7 +299,7 @@ export class AiReceptionistOrchestrator {
     if (result.toolRequest.name === "BOOK_APPOINTMENT") {
       return this.resolveBookingFollowup(session, finalResult, bookingFollowups);
     }
-    return this.resolvePolicyAwareModelResult(session, finalResult);
+    return this.resolvePolicyAwareModelResult(session, finalResult, bookingFollowups, toolChainDepth + 1);
   }
 
   private async resolveBookingFollowup(
@@ -291,7 +316,9 @@ export class AiReceptionistOrchestrator {
 
   private async resolvePolicyAwareModelResult(
     session: CallSession,
-    firstResult: ModelTurnResult
+    firstResult: ModelTurnResult,
+    bookingFollowups = 0,
+    toolChainDepth = 0
   ): Promise<ModelTurnResult> {
     const policyDecision = applyWorkflowTurnPolicies(session, firstResult) ?? {
       overrideResult: firstResult
@@ -309,7 +336,12 @@ export class AiReceptionistOrchestrator {
       );
     }
 
-    return this.resolveModelResult(session, policyDecision.overrideResult ?? firstResult);
+    return this.resolveModelResult(
+      session,
+      policyDecision.overrideResult ?? firstResult,
+      bookingFollowups,
+      toolChainDepth
+    );
   }
 
   async recordCallerTurn(session: CallSession, text: string): Promise<void> {

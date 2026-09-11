@@ -120,6 +120,55 @@ test("does not transfer when identity policy suppresses an inferred transfer", a
   assert.match(outcome.reply, /spell your first name/i);
 });
 
+test("returns a response when patient verification tools recurse repeatedly", async () => {
+  const sessions = new CallSessionStore();
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  const session = sessions.create({ callSid: "CA-identity-loop", officeCode: "TEST" });
+  session.currentIntent = "BOOK_APPOINTMENT";
+  session.workflowState = {
+    contractVersion: 1,
+    workflow: "PATIENT_VERIFICATION",
+    state: "NEEDS_INPUT",
+    requiredField: "firstName",
+    allowedActions: ["VERIFY_PATIENT"]
+  };
+
+  const executed: ToolRequest[] = [];
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      return { intent: "BOOK_APPOINTMENT", toolRequest: { name: "VERIFY_PATIENT", arguments: {} } };
+    },
+    async continueWithToolResult() {
+      return {
+        intent: "BOOK_APPOINTMENT",
+        toolRequest: { name: "VERIFY_PATIENT", arguments: {} }
+      };
+    }
+  } });
+  Object.defineProperty(orchestrator, "toolExecutor", { value: {
+    async execute(_session: CallSession, tool: ToolRequest) {
+      executed.push(tool);
+      return {
+        name: tool.name,
+        ok: true,
+        workflowState: {
+          contractVersion: 1,
+          workflow: "PATIENT_VERIFICATION",
+          state: "NEEDS_INPUT",
+          requiredField: "firstName",
+          allowedActions: ["VERIFY_PATIENT"]
+        }
+      };
+    }
+  } });
+
+  const outcome = await orchestrator.handleCallerText(session, "Book an appointment", { recordCallerTurn: false });
+
+  assert.equal(executed.length, 3);
+  assert.match(outcome.reply, /still unable to verify/i);
+  assert.equal(outcome.shouldTransferToStaff, false);
+});
+
 function bookingHarness(followups: ModelTurnResult[], states: string[]) {
   const sessions = new CallSessionStore();
   const session = sessions.create({ callSid: "CA-booking-followup", officeCode: "TEST" });

@@ -323,6 +323,31 @@ test("validates new-patient appointment types from the new-patient catalog", () 
   }) ?? "", /NEW_PATIENT/);
 });
 
+test("uses the persisted new-patient candidate before backend state changes", () => {
+  const callSession = session();
+  callSession.officeContext = {
+    officeCode: "OFC001", timezone: "America/Los_Angeles",
+    appointmentTypes: {
+      RETURNING_PATIENT: [{ appointmentTypeId: 12, type: "Cleaning", duration: 60 }],
+      NEW_PATIENT: [{ appointmentTypeId: 13, type: "Initial exam", duration: 90 }]
+    }
+  };
+  callSession.workflowState = {
+    contractVersion: 1,
+    workflow: "PATIENT_VERIFICATION",
+    state: "FAILED",
+    failureReason: "FIRST_NAME_NO_MATCH",
+    context: { patientVerified: false, canDisclosePatientData: false }
+  };
+  callSession.newPatientBookingCandidate = true;
+
+  const adapter = new BookAppointmentToolAdapter();
+  assert.equal(adapter.validateTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: { appointmentTypeId: 13 }
+  }), undefined);
+});
+
 function session(): CallSession {
   return {
     callSid: "CA-test",
