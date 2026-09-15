@@ -11,7 +11,7 @@ const bookingFields = z.object({
   dob: textField,
   fromNumber: textField,
   bookingReason: textField,
-  appointmentTypeId: z.number().int().positive().nullable().optional(),
+  appointmentTypeId: z.number().int().nullable().optional(),
   providerName: textField,
   patientPhone: textField,
   patientEmail: textField,
@@ -38,6 +38,9 @@ export function bookingModelContractError(session: CallSession, result: ModelTur
       if (isBlank(fields[field])) {
         return `BOOK_APPOINTMENT is missing ${field}.`;
       }
+    }
+    if (!isValidAppointmentTypeId(fields.appointmentTypeId)) {
+      return "BOOK_APPOINTMENT appointmentTypeId must be an integer that exists in the eligible office catalog.";
     }
     return undefined;
   }
@@ -79,4 +82,8 @@ function mergedBookingFields(session: CallSession, result: ModelTurnResult): Rec
 
 function isBlank(value: unknown): boolean {
   return value === undefined || value === null || value === "";
+}
+
+function isValidAppointmentTypeId(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value);
 }

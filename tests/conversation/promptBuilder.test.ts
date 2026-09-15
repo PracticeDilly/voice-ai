@@ -23,6 +23,7 @@ test("builds a compact workflow-oriented prompt", () => {
   assert.match(prompt, /maximum allowed difference between fromDate and toDate is 7 days/i);
   assert.match(prompt, /Appointment type resolution is mandatory before every BOOK_APPOINTMENT request/i);
   assert.match(prompt, /Never submit BOOK_APPOINTMENT with a missing, null, string-valued, or cross-category appointmentTypeId/i);
+  assert.match(prompt, /present directly inside toolRequest\.arguments/i);
   assert.match(prompt, /A reply such as yes, please, or okay does not contain a date/i);
   assert.ok(prompt.length < 11000, `prompt is too long: ${prompt.length}`);
 });

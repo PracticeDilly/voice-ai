@@ -1,5 +1,5 @@
 import { SpringBootClient } from "../backend/springBootClient.js";
-import { CallSession, CallSessionStore } from "../calls/callSession.js";
+import { CallSession, CallSessionStore, TranscriptTurn } from "../calls/callSession.js";
 import { invalidateAppointmentLookupCacheAfterConfirmation } from "../appointments/appointmentLookupCache.js";
 import {
   consumeConfirmAppointmentPendingAction,
@@ -14,10 +14,13 @@ import { extractWorkflowEnvelope } from "../workflows/workflowState.js";
 import { ModelClient, ModelTurnResult } from "./modelClient.js";
 import { BookingWorkflowError } from "../workflows/bookAppointment/bookingModelContract.js";
 import { prepareBookingFollowup } from "../workflows/bookAppointment/bookingFollowup.js";
+import { bookingReason, isEligibleAppointmentTypeId } from "../workflows/bookAppointment/appointmentTypeSelection.js";
 import { callerActionRequestsStaffTransfer } from "../workflows/shared/callerActionDecision.js";
 import { correctBookingWeekdayMentions } from "../workflows/bookAppointment/bookingDatePreference.js";
 
 const MAX_PATIENT_VERIFICATION_TOOL_CHAIN_DEPTH = 3;
+const COMPLETE_CALL_MAX_ATTEMPTS = 3;
+const COMPLETE_CALL_RETRY_DELAY_MS = 250;
 
 export interface ConversationTurnOutcome {
   reply: string;
@@ -194,13 +197,6 @@ export class AiReceptionistOrchestrator {
       text,
       metadata
     });
-    await this.trySaveTranscriptTurn({
-      callSid: session.callSid,
-      officeCode: session.officeCode,
-      speaker: "assistant",
-      text,
-      metadata
-    });
   }
 
   private async resolveModelResult(
@@ -211,6 +207,13 @@ export class AiReceptionistOrchestrator {
   ): Promise<ModelTurnResult> {
     if (!result.toolRequest) {
       return result;
+    }
+
+    if (result.toolRequest.name === "BOOK_APPOINTMENT") {
+      result = await this.ensureBookingAppointmentType(session, result);
+      if (!result.toolRequest) {
+        return result;
+      }
     }
 
     if (result.toolRequest.name === "VERIFY_PATIENT"
@@ -317,6 +320,53 @@ export class AiReceptionistOrchestrator {
       });
       return this.modelClient.bookingResponse(session, "SCHEDULING_PREFERENCE");
     }
+
+    if (session.workflowState?.workflow === "BOOK_APPOINTMENT"
+      && session.workflowState.state === "NEEDS_INPUT"
+      && session.workflowState.requiredField === "appointmentTypeId") {
+      const bookingResult: ModelTurnResult = result.toolRequest?.name === "BOOK_APPOINTMENT"
+        ? result
+        : {
+          ...result,
+          intent: "BOOK_APPOINTMENT",
+          toolRequest: {
+            name: "BOOK_APPOINTMENT",
+            arguments: {
+              ...session.collectedFields,
+              bookingReason: session.collectedFields.bookingReason
+                ?? session.workflowState.context?.bookingReason
+            }
+          }
+        };
+      const correctedResult = await this.ensureBookingAppointmentType(session, bookingResult);
+      if (correctedResult.toolRequest?.name === "BOOK_APPOINTMENT"
+        && isEligibleAppointmentTypeId(session, correctedResult.toolRequest.arguments.appointmentTypeId)) {
+        result = prepareBookingFollowup(session, correctedResult, followups);
+        if (result.collectedFields) {
+          session.collectedFields = { ...session.collectedFields, ...result.collectedFields };
+        }
+        logger.info("Executing corrected booking after appointment type validation", {
+          callSid: session.callSid,
+          officeCode: session.officeCode,
+          appointmentTypeId: correctedResult.toolRequest.arguments.appointmentTypeId,
+          followups: followups + 1
+        });
+        return this.resolveModelResult(session, result, followups + 1);
+      }
+
+      if (!correctedResult.toolRequest) {
+        return correctedResult;
+      }
+
+      logger.warn("Blocked booking follow-up without a valid appointment type", {
+        callSid: session.callSid,
+        officeCode: session.officeCode,
+        requestedToolName: result.toolRequest?.name,
+        workflowStateSummary: this.workflowStateSummary(session)
+      });
+      return this.modelClient.bookingResponse(session, "APPOINTMENT_TYPE_CLARIFICATION");
+    }
+
     result = prepareBookingFollowup(session, result, followups);
     if (result.collectedFields) {
       session.collectedFields = { ...session.collectedFields, ...result.collectedFields };
@@ -324,6 +374,75 @@ export class AiReceptionistOrchestrator {
     if (!result.toolRequest || result.toolRequest.name === "TRANSFER_TO_STAFF") return result;
     logger.info("Executing booking follow-up tool", { callSid: session.callSid, state: session.workflowState?.state, followups: followups + 1 });
     return this.resolveModelResult(session, result, followups + 1);
+  }
+
+  private async ensureBookingAppointmentType(
+    session: CallSession,
+    result: ModelTurnResult
+  ): Promise<ModelTurnResult> {
+    if (result.toolRequest?.name !== "BOOK_APPOINTMENT") {
+      return result;
+    }
+
+    const candidateId = result.toolRequest.arguments.appointmentTypeId
+      ?? result.collectedFields?.appointmentTypeId
+      ?? session.collectedFields.appointmentTypeId
+      ?? session.workflowState?.context?.appointmentTypeId;
+    if (isEligibleAppointmentTypeId(session, candidateId)) {
+      return {
+        ...result,
+        collectedFields: {
+          ...result.collectedFields,
+          appointmentTypeId: candidateId
+        },
+        toolRequest: {
+          ...result.toolRequest,
+          arguments: {
+            ...result.toolRequest.arguments,
+            appointmentTypeId: candidateId
+          }
+        }
+      };
+    }
+
+    if (!session.officeContext?.appointmentTypes) {
+      if (session.officeContext) {
+        logger.error("Booking blocked because office appointment catalog is unavailable", {
+          callSid: session.callSid,
+          officeCode: session.officeCode
+        });
+        return this.modelClient.bookingResponse(session, "APPOINTMENT_TYPE_CLARIFICATION");
+      }
+      return result;
+    }
+
+    const selectedId = await this.modelClient.selectBookingAppointmentType(
+      session,
+      bookingReason(session, result.toolRequest.arguments.bookingReason ?? result.collectedFields?.bookingReason)
+    );
+    if (selectedId === undefined) {
+      logger.warn("Booking blocked because appointment type could not be resolved", {
+        callSid: session.callSid,
+        officeCode: session.officeCode,
+        workflowStateSummary: this.workflowStateSummary(session)
+      });
+      return this.modelClient.bookingResponse(session, "APPOINTMENT_TYPE_CLARIFICATION");
+    }
+
+    return {
+      ...result,
+      collectedFields: {
+        ...result.collectedFields,
+        appointmentTypeId: selectedId
+      },
+      toolRequest: {
+        ...result.toolRequest,
+        arguments: {
+          ...result.toolRequest.arguments,
+          appointmentTypeId: selectedId
+        }
+      }
+    };
   }
 
   private async resolvePolicyAwareModelResult(
@@ -361,12 +480,6 @@ export class AiReceptionistOrchestrator {
 
   async recordCallerTurn(session: CallSession, text: string): Promise<void> {
     this.sessions.append(session, {
-      speaker: "patient",
-      text
-    });
-    await this.trySaveTranscriptTurn({
-      callSid: session.callSid,
-      officeCode: session.officeCode,
       speaker: "patient",
       text
     });
@@ -474,42 +587,38 @@ export class AiReceptionistOrchestrator {
     }
   }
 
-  private async trySaveTranscriptTurn(input: {
-    callSid: string;
-    officeCode: string;
-    speaker: string;
-    text: string;
-    metadata?: Record<string, unknown>;
-  }): Promise<void> {
-    try {
-      await this.springBootClient.saveTranscriptTurn(input);
-    } catch (error) {
-      logger.warn("Unable to save AI transcript turn; continuing conversation", {
-        callSid: input.callSid,
-        officeCode: input.officeCode,
-        speaker: input.speaker,
-        error: String(error)
-      });
-    }
-  }
-
   private async tryCompleteCall(input: {
     callSid: string;
     officeCode: string;
-    transcript: unknown[];
+    transcript: TranscriptTurn[];
     collectedFields: Record<string, unknown>;
     lastToolResults: Record<string, unknown>;
     workflowState: CallSession["workflowState"];
     summary?: Awaited<ReturnType<ModelClient["summarizeCall"]>>;
   }): Promise<void> {
-    try {
-      await this.springBootClient.completeCall(input);
-    } catch (error) {
-      logger.warn("Unable to complete AI call record; closing in-memory session", {
-        callSid: input.callSid,
-        officeCode: input.officeCode,
-        error: String(error)
-      });
+    for (let attempt = 1; attempt <= COMPLETE_CALL_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        await this.springBootClient.completeCall(input);
+        return;
+      } catch (error) {
+        if (attempt === COMPLETE_CALL_MAX_ATTEMPTS) {
+          logger.error("Unable to complete AI call record after retries", {
+            callSid: input.callSid,
+            officeCode: input.officeCode,
+            attempts: attempt,
+            error: String(error)
+          });
+          return;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, COMPLETE_CALL_RETRY_DELAY_MS * attempt));
+        logger.warn("Retrying AI call completion", {
+          callSid: input.callSid,
+          officeCode: input.officeCode,
+          attempt: attempt + 1,
+          error: String(error)
+        });
+      }
     }
   }
 

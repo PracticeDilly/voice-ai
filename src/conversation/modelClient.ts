@@ -7,6 +7,12 @@ import type { CallerActionDecision } from "../workflows/shared/callerActionDecis
 import { buildSystemPrompt } from "./promptBuilder.js";
 import { BookingWorkflowError, bookingModelContractError } from "../workflows/bookAppointment/bookingModelContract.js";
 import { bookingResponseContext, bookingResponseInstruction, BookingResponsePurpose } from "../workflows/bookAppointment/bookingResponseContext.js";
+import {
+  bookingPatientType,
+  bookingReason,
+  eligibleAppointmentTypes,
+  isEligibleAppointmentTypeId
+} from "../workflows/bookAppointment/appointmentTypeSelection.js";
 import { logger } from "../utils/logger.js";
 
 export interface ModelTurnResult {
@@ -97,6 +103,97 @@ export class ModelClient {
     return { reply, intent: purpose === "HANDOFF" ? "TRANSFER_TO_STAFF" : "BOOK_APPOINTMENT", shouldEndCall: purpose === "HANDOFF" };
   }
 
+  async selectBookingAppointmentType(session: CallSession, candidateReason?: unknown): Promise<number | undefined> {
+    const appointmentTypes = eligibleAppointmentTypes(session);
+    const reason = bookingReason(session, candidateReason);
+    if (!appointmentTypes.length || !reason) {
+      return undefined;
+    }
+
+    const ids = appointmentTypes.map((type) => type.appointmentTypeId);
+    try {
+      const response = await this.client.chat.completions.create({
+        model: config.OPENAI_MODEL,
+        temperature: 0,
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "appointment_type_selection",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: {
+                appointmentTypeId: {
+                  type: "integer",
+                  enum: ids
+                }
+              },
+              required: ["appointmentTypeId"],
+              additionalProperties: false
+            }
+          }
+        },
+        messages: [
+          {
+            role: "system",
+            content: [
+              "Select the single best appointment type for a dental booking.",
+              "Use only the eligible catalog in the user message and match the caller's reason semantically against type and description.",
+              "Return only the numeric appointmentTypeId. Never return a name, explanation, or ID outside the catalog.",
+              "This is an internal selection step; do not ask the caller to choose an appointment type."
+            ].join("\n")
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              patientType: bookingPatientType(session),
+              bookingReason: reason,
+              eligibleAppointmentTypes: appointmentTypes.map((type) => ({
+                appointmentTypeId: type.appointmentTypeId,
+                type: type.type,
+                description: type.description,
+                duration: type.duration
+              }))
+            })
+          }
+        ]
+      }, {
+        timeout: config.AI_MODEL_TIMEOUT_MS
+      });
+
+      const content = response.choices[0]?.message?.content ?? "{}";
+      const appointmentTypeId = (JSON.parse(content) as { appointmentTypeId?: unknown }).appointmentTypeId;
+      if (isEligibleAppointmentTypeId(session, appointmentTypeId)) {
+        logger.info("Appointment type selected from eligible catalog", {
+          callSid: session.callSid,
+          officeCode: session.officeCode,
+          patientType: bookingPatientType(session),
+          appointmentTypeId,
+          catalogSize: appointmentTypes.length
+        });
+        return appointmentTypeId;
+      }
+
+      logger.warn("Model returned an ineligible appointment type selection", {
+        callSid: session.callSid,
+        officeCode: session.officeCode,
+        patientType: bookingPatientType(session),
+        appointmentTypeId,
+        catalogSize: appointmentTypes.length
+      });
+    } catch (error) {
+      logger.warn("Unable to select appointment type from eligible catalog", {
+        callSid: session.callSid,
+        officeCode: session.officeCode,
+        patientType: bookingPatientType(session),
+        catalogSize: appointmentTypes.length,
+        error: String(error)
+      });
+    }
+
+    return undefined;
+  }
+
   async summarizeCall(session: CallSession): Promise<ModelCallSummary> {
     const response = await this.client.chat.completions.create({
       model: config.OPENAI_MODEL,
@@ -183,6 +280,29 @@ export class ModelClient {
     const result = this.parseModelResult(content);
     const contractError = bookingModelContractError(session, result);
     if (!contractError) return result;
+
+    if (contractError.includes("appointmentTypeId") && result.toolRequest?.name === "BOOK_APPOINTMENT") {
+      const appointmentTypeId = await this.selectBookingAppointmentType(
+        session,
+        result.toolRequest.arguments.bookingReason ?? result.collectedFields?.bookingReason
+      );
+      if (appointmentTypeId !== undefined) {
+        return {
+          ...result,
+          collectedFields: {
+            ...result.collectedFields,
+            appointmentTypeId
+          },
+          toolRequest: {
+            ...result.toolRequest,
+            arguments: {
+              ...result.toolRequest.arguments,
+              appointmentTypeId
+            }
+          }
+        };
+      }
+    }
 
     logger.warn("Booking model contract rejected", {
       callSid: session.callSid,

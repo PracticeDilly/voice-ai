@@ -72,13 +72,14 @@ test("gives an explicit appointment-type repair instruction when the model omits
   };
   const { client, requests } = mockModel([
     booking({ firstName: "Mary", dob: "04/01/2011", bookingReason: "Root Canal Treatment" }),
-    booking({ firstName: "Mary", dob: "04/01/2011", bookingReason: "Root Canal Treatment", appointmentTypeId: 13 })
+    { appointmentTypeId: 13 }
   ]);
 
   const result = await client.nextTurn(call, "April 1, 2011");
 
   assert.equal(result.toolRequest?.arguments.appointmentTypeId, 13);
-  assert.match(JSON.stringify(requests[1]), /omitted the required appointmentTypeId/i);
+  assert.match(JSON.stringify(requests[1]), /appointment_type_selection/i);
+  assert.match(JSON.stringify(requests[1]), /Root Canal Treatment/i);
 });
 
 test("bounds invalid model repair to one retry", async () => {
@@ -156,7 +157,7 @@ test("follow-up execution strips model approval while preserving its wording", (
   assert.equal(result.collectedFields?.callerConfirmedBooking, false);
 });
 
-function mockModel(results: ModelTurnResult[]) {
+function mockModel(results: unknown[]) {
   const client = new ModelClient();
   const requests: unknown[] = [];
   Object.defineProperty(client, "client", { value: { chat: { completions: {

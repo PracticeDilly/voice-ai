@@ -1,5 +1,5 @@
 import { config } from "../config/env.js";
-import { OfficeContext } from "../calls/callSession.js";
+import { OfficeContext, TranscriptTurn } from "../calls/callSession.js";
 import { WorkflowEnvelope } from "../workflows/workflowState.js";
 
 export interface ToolRequest {
@@ -38,23 +38,10 @@ export class SpringBootClient {
     });
   }
 
-  async saveTranscriptTurn(input: {
-    callSid: string;
-    officeCode: string;
-    speaker: string;
-    text: string;
-    metadata?: Record<string, unknown>;
-  }): Promise<void> {
-    await this.request<void>("/voice/ai/transcript/turns", {
-      method: "POST",
-      body: JSON.stringify(input)
-    });
-  }
-
   async completeCall(input: {
     callSid: string;
     officeCode: string;
-    transcript: unknown[];
+    transcript: TranscriptTurn[];
     collectedFields: Record<string, unknown>;
     lastToolResults: Record<string, unknown>;
     workflowState?: WorkflowEnvelope;

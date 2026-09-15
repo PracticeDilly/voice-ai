@@ -5,6 +5,7 @@ import { WorkflowToolAdapter } from "../shared/workflowTypes.js";
 import { isBookingDatePreferenceValid, isBookingDateRangeValid } from "./bookingDatePreference.js";
 import { normalizeBookingArguments } from "./bookingArgumentNormalizer.js";
 import { providerNameMatchesOfficeContext } from "./officeContextProviders.js";
+import { bookingPatientType, isEligibleAppointmentTypeId } from "./appointmentTypeSelection.js";
 
 const SLOT_NOT_AVAILABLE_MESSAGE = "Select a slot returned by the availability search.";
 
@@ -44,13 +45,9 @@ export class BookAppointmentToolAdapter implements WorkflowToolAdapter {
       return "Select a provider from office context only; clarify the caller's preference without offering widget providers.";
     }
     const appointmentTypeId = tool.arguments?.appointmentTypeId;
-    const patientType = session.newPatientBookingCandidate === true
-      || session.workflowState?.context?.patientType === "NEW_PATIENT"
-      ? "NEW_PATIENT"
-      : "RETURNING_PATIENT";
-    if (appointmentTypeId !== undefined && !session.officeContext?.appointmentTypes?.[patientType]
-      ?.some((type) => type.appointmentTypeId === appointmentTypeId && type.duration > 0)) {
-      return `Select an eligible ${patientType} appointmentTypeId from office context based on bookingReason; clarify when ambiguous.`;
+    const patientType = bookingPatientType(session);
+    if (session.officeContext && !isEligibleAppointmentTypeId(session, appointmentTypeId)) {
+      return `BOOK_APPOINTMENT requires a numeric ${patientType} appointmentTypeId that exists in office context; resolve it from bookingReason before execution.`;
     }
 
     for (const fieldName of ["datePreference", "fromDate", "toDate"] as const) {

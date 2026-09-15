@@ -1,6 +1,6 @@
 import type { CallSession } from "../../calls/callSession.js";
 
-export type BookingResponsePurpose = "AWAITING_CONFIRMATION" | "HANDOFF" | "REPEAT_SLOTS" | "SCHEDULING_PREFERENCE";
+export type BookingResponsePurpose = "AWAITING_CONFIRMATION" | "HANDOFF" | "REPEAT_SLOTS" | "SCHEDULING_PREFERENCE" | "APPOINTMENT_TYPE_CLARIFICATION";
 
 export function bookingResponseContext(session: CallSession, purpose: BookingResponsePurpose) {
   return {
@@ -11,6 +11,7 @@ export function bookingResponseContext(session: CallSession, purpose: BookingRes
     transferringToStaff: purpose === "HANDOFF",
     repeatingAvailableSlots: purpose === "REPEAT_SLOTS",
     requestingSchedulingPreference: purpose === "SCHEDULING_PREFERENCE",
+    requestingAppointmentTypeClarification: purpose === "APPOINTMENT_TYPE_CLARIFICATION",
     toolExecutionAllowed: false
   };
 }
@@ -20,5 +21,6 @@ export const bookingResponseInstruction =
   + "For AWAITING_CONFIRMATION, the appointment is not booked; address the caller's question and seek permission for the selected appointment. "
   + "For REPEAT_SLOTS, repeat the available appointment date and times from responseContext.selectedAppointment without requesting a tool or changing the workflow. "
   + "For SCHEDULING_PREFERENCE, explain that no openings were found for the current request and ask for one specific alternative date or date range; do not request a tool or claim another search was made. "
+  + "For APPOINTMENT_TYPE_CLARIFICATION, ask one concise patient-friendly question about the treatment needed because the appointment type could not be safely resolved; do not mention IDs or ask the caller to choose an internal appointment type. Do not request a tool. "
   + "For HANDOFF, explain that office staff will assist, without claiming booking succeeded. "
   + "Do not request tools, extract fields, or infer new caller approval in this response.";

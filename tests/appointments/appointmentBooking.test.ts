@@ -350,6 +350,24 @@ test("validates returning-patient type and provider on active booking turns", ()
   }) ?? "", /office context only/);
 });
 
+test("rejects a booking without an eligible appointment type before the backend call", () => {
+  const callSession = session();
+  callSession.officeContext = {
+    officeCode: "OFC001",
+    timezone: "America/Los_Angeles",
+    appointmentTypes: {
+      RETURNING_PATIENT: [{ appointmentTypeId: 12, type: "Cleaning", duration: 60 }]
+    }
+  };
+  const adapter = new BookAppointmentToolAdapter();
+  const prepared = adapter.prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: { firstName: "Nancy", dob: "04/01/2000", bookingReason: "Cleaning" }
+  });
+
+  assert.match(adapter.validateTool(callSession, prepared) ?? "", /requires a numeric RETURNING_PATIENT appointmentTypeId that exists/);
+});
+
 test("validates new-patient appointment types from the new-patient catalog", () => {
   const callSession = session();
   callSession.officeContext = {

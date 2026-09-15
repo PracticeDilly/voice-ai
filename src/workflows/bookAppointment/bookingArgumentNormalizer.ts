@@ -33,6 +33,13 @@ export function normalizeBookingArguments(
   }
   copyKnownValue(
     normalized,
+    "appointmentTypeId",
+    toolArguments?.appointmentTypeId
+      ?? session.collectedFields.appointmentTypeId
+      ?? session.workflowState?.context?.appointmentTypeId
+  );
+  copyKnownValue(
+    normalized,
     "dob",
     toolArguments?.dob
       ?? toolArguments?.dateOfBirth
