@@ -306,6 +306,17 @@ export class AiReceptionistOrchestrator {
   private async resolveBookingFollowup(
     session: CallSession, result: ModelTurnResult, followups: number
   ): Promise<ModelTurnResult> {
+    if (session.workflowState?.workflow === "BOOK_APPOINTMENT"
+      && session.workflowState.state === "NEEDS_SCHEDULING_PREFERENCE"
+      && result.toolRequest?.name === "BOOK_APPOINTMENT") {
+      logger.warn("Blocked booking follow-up during scheduling preference state", {
+        callSid: session.callSid,
+        officeCode: session.officeCode,
+        state: session.workflowState.state,
+        followups
+      });
+      return this.modelClient.bookingResponse(session, "SCHEDULING_PREFERENCE");
+    }
     result = prepareBookingFollowup(session, result, followups);
     if (result.collectedFields) {
       session.collectedFields = { ...session.collectedFields, ...result.collectedFields };

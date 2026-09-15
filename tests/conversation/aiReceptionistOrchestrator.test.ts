@@ -69,6 +69,19 @@ test("bounds repeated follow-up tool requests", async () => {
   assert.equal(outcome.shouldTransferToStaff, true);
 });
 
+test("asks for a new date instead of repeating a no-opening search", async () => {
+  const { orchestrator, session, executed } = bookingHarness([
+    { intent: "BOOK_APPOINTMENT", toolRequest: { name: "BOOK_APPOINTMENT", arguments: {} } }
+  ], ["NEEDS_SCHEDULING_PREFERENCE"]);
+  session.collectedFields.datePreference = "09/16/2026";
+
+  const outcome = await orchestrator.handleCallerText(session, "Please check it.", { recordCallerTurn: false });
+
+  assert.equal(executed.length, 1);
+  assert.equal(outcome.shouldTransferToStaff, false);
+  assert.match(outcome.reply, /specific date|other date/i);
+});
+
 test("contract repair exhaustion hands off without the booking policy issuing another tool", async () => {
   const { orchestrator, session, executed } = bookingHarness([], []);
   session.workflowState = { contractVersion: 1, workflow: "BOOK_APPOINTMENT", state: "NEEDS_PATIENT_IDENTITY" };
@@ -182,7 +195,11 @@ function bookingHarness(followups: ModelTurnResult[], states: string[]) {
     },
     async bookingResponse(_session: CallSession, purpose: string) {
       return { intent: purpose === "HANDOFF" ? "TRANSFER_TO_STAFF" : "BOOK_APPOINTMENT",
-        reply: purpose === "HANDOFF" ? "Our team can help with this visit." : "Shall I reserve that appointment for you?",
+        reply: purpose === "HANDOFF"
+          ? "Our team can help with this visit."
+          : purpose === "SCHEDULING_PREFERENCE"
+            ? "What other date would you like me to check?"
+            : "Shall I reserve that appointment for you?",
         shouldEndCall: purpose === "HANDOFF" };
     }
   } });
