@@ -15,6 +15,7 @@ import { ModelClient, ModelTurnResult } from "./modelClient.js";
 import { BookingWorkflowError } from "../workflows/bookAppointment/bookingModelContract.js";
 import { prepareBookingFollowup } from "../workflows/bookAppointment/bookingFollowup.js";
 import { callerActionRequestsStaffTransfer } from "../workflows/shared/callerActionDecision.js";
+import { correctBookingWeekdayMentions } from "../workflows/bookAppointment/bookingDatePreference.js";
 
 const MAX_PATIENT_VERIFICATION_TOOL_CHAIN_DEPTH = 3;
 
@@ -121,7 +122,7 @@ export class AiReceptionistOrchestrator {
       && !this.isTerminalIntent(finalResult.intent)) {
       finalResult.intent = firstResult.intent;
     }
-    const reply = finalResult.reply ?? "I am sorry, I could not complete that request.";
+    const reply = this.correctBookingReply(finalResult.reply ?? "I am sorry, I could not complete that request.", session);
     const transferToStaff = this.shouldTransferToStaff(session, firstResult, finalResult);
     const shouldEndSession = transferToStaff || finalResult.shouldEndCall === true;
 
@@ -417,6 +418,23 @@ export class AiReceptionistOrchestrator {
     const verificationBoundary = session.workflowState?.workflow === "PATIENT_VERIFICATION"
       && ["FAILED", "HANDOFF_REQUIRED", "NEEDS_NEW_PATIENT_CONFIRMATION"].includes(session.workflowState.state);
     return !verificationBoundary || callerActionRequestsStaffTransfer(firstResult);
+  }
+
+  private correctBookingReply(reply: string, session: CallSession): string {
+    if (session.workflowState?.workflow !== "BOOK_APPOINTMENT") {
+      return reply;
+    }
+
+    const context = session.workflowState.context;
+    const knownDates: unknown[] = [context?.slotDate];
+    if (Array.isArray(context?.slots)) {
+      knownDates.push(...context.slots.map((slot) => (
+        slot && typeof slot === "object" && !Array.isArray(slot)
+          ? (slot as { slotDate?: unknown }).slotDate
+          : undefined
+      )));
+    }
+    return correctBookingWeekdayMentions(reply, knownDates);
   }
 
   private isTerminalIntent(intent: string | undefined): boolean {

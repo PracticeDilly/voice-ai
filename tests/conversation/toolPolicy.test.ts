@@ -270,6 +270,30 @@ test("retries verification with the corrected first-name spelling", () => {
   assert.equal(decision?.overrideResult?.toolRequest?.arguments.firstName, "Maddie");
 });
 
+test("prompts for first-name spelling immediately after a phone-backed name mismatch", () => {
+  const call = session({
+    currentIntent: "BOOK_APPOINTMENT",
+    collectedFields: { firstName: "Maddie", dob: "11/26/2003" },
+    workflowState: {
+      contractVersion: 1,
+      workflow: "PATIENT_VERIFICATION",
+      state: "FAILED",
+      allowedActions: ["VERIFY_PATIENT", "TRANSFER_TO_STAFF"],
+      failureReason: "FIRST_NAME_NO_MATCH",
+      context: {
+        patientVerified: false,
+        canDisclosePatientData: false
+      }
+    }
+  });
+
+  const decision = applyWorkflowToolResultPolicies(call, "VERIFY_PATIENT", { ok: true });
+
+  assert.match(decision?.overrideResult?.reply ?? "", /spell your first name/i);
+  assert.equal(decision?.overrideResult?.toolRequest, undefined);
+  assert.equal(call.pendingActions.VERIFY_PATIENT_IDENTITY?.status, "NEEDS_NAME_SPELLING");
+});
+
 test("prioritizes a corrected first name over an inferred transfer", () => {
   const call = session({
     currentIntent: "NEXT_APPOINTMENT",
@@ -339,6 +363,31 @@ test("clears the new-patient candidate after booking completes", () => {
   });
 
   assert.equal(call.newPatientBookingCandidate, false);
+});
+
+test("does not re-ask a known DOB when booking needs another field", () => {
+  const call = session({
+    currentIntent: "BOOK_APPOINTMENT",
+    collectedFields: {
+      firstName: "Nancy",
+      dob: "11/26/2003",
+      bookingReason: "regular cleaning"
+    },
+    workflowState: {
+      contractVersion: 1,
+      workflow: "BOOK_APPOINTMENT",
+      state: "NEEDS_INPUT",
+      requiredField: "appointmentTypeId",
+      allowedActions: ["BOOK_APPOINTMENT"],
+      context: {}
+    }
+  });
+
+  const decision = applyWorkflowToolResultPolicies(call, "BOOK_APPOINTMENT", { ok: true });
+
+  assert.match(decision?.instruction ?? "", /date of birth is already known/i);
+  assert.match(decision?.instruction ?? "", /must not be requested again/i);
+  assert.match(decision?.instruction ?? "", /appointmentTypeId/i);
 });
 
 test("forces fresh appointment lookup for follow-up questions after confirmation", () => {

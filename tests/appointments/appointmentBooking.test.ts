@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CallSession } from "../../src/calls/callSession.js";
 import { BookAppointmentToolAdapter } from "../../src/workflows/bookAppointment/bookAppointmentToolAdapter.js";
+import { correctBookingWeekdayMentions } from "../../src/workflows/bookAppointment/bookingDatePreference.js";
 
 test("prepares booking request with caller number and collected conversational fields", () => {
   const callSession = session();
@@ -157,6 +158,44 @@ test("normalizes model booking date preferences", () => {
   assert.equal(prepared.arguments.bookingReason, "teeth whitening");
   assert.equal(prepared.arguments.datePreference, "09/09/2026");
   assert.equal(prepared.arguments.timePreference, "morning");
+});
+
+test("resolves next-week weekday to the next upcoming calendar date", () => {
+  const callSession = session();
+  callSession.startedAt = "2026-09-12T18:00:00.000Z";
+  callSession.officeContext = {
+    officeCode: "OFC001",
+    timezone: "America/Los_Angeles"
+  };
+
+  const prepared = new BookAppointmentToolAdapter().prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: { datePreference: "Tuesday next week" }
+  });
+
+  assert.equal(prepared.arguments.datePreference, "09/15/2026");
+  assert.equal(prepared.arguments.fromDate, "09/15/2026");
+  assert.equal(prepared.arguments.toDate, "09/22/2026");
+});
+
+test("preserves a DOB held under the legacy collected-field alias", () => {
+  const callSession = session();
+  callSession.collectedFields.dateOfBirth = "11/26/2003";
+
+  const prepared = new BookAppointmentToolAdapter().prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: { firstName: "Nancy" }
+  });
+
+  assert.equal(prepared.arguments.dob, "11/26/2003");
+  assert.equal(prepared.arguments.dateOfBirth, undefined);
+});
+
+test("corrects a spoken weekday when the returned numeric date disagrees", () => {
+  assert.equal(
+    correctBookingWeekdayMentions("Wednesday, September 24th is available.", ["09/24/2026"]),
+    "Thursday, September 24th is available."
+  );
 });
 
 test("rejects unsupported booking date expressions before the backend call", () => {

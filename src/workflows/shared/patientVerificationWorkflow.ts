@@ -126,7 +126,7 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
     if (!isSuccessfulToolResult(toolResult)) {
       delete session.verifiedIdentityFingerprint;
       rememberIdentityCorrection(session);
-      return undefined;
+      return identityCorrectionPrompt(session);
     }
 
     if (isNewPatientCandidateState(session) && session.pendingPatientWorkflow?.name === "BOOK_APPOINTMENT") {
@@ -150,6 +150,10 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
     if (!isVerifiedWorkflowState(session)) {
       delete session.verifiedIdentityFingerprint;
       rememberIdentityCorrection(session);
+      const correctionPrompt = identityCorrectionPrompt(session);
+      if (correctionPrompt) {
+        return correctionPrompt;
+      }
       return undefined;
     }
 
@@ -173,6 +177,33 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
     };
   }
 };
+
+function identityCorrectionPrompt(session: CallSession): ToolPolicyDecision | undefined {
+  if (!["FIRST_NAME_NO_MATCH", "DOB_NO_MATCH"].includes(session.workflowState?.failureReason ?? "")) {
+    return undefined;
+  }
+
+  const status = session.pendingActions.VERIFY_PATIENT_IDENTITY?.status;
+  if (!status) {
+    return undefined;
+  }
+
+  const isNameCorrection = status === "NEEDS_NAME_SPELLING";
+  return {
+    overrideResult: {
+      intent: session.currentIntent,
+      reply: isNameCorrection
+        ? "I couldn't match that first name to the record linked to this phone number. Could you please spell your first name?"
+        : "I couldn't match that date of birth to the record linked to this phone number. Could you please repeat your date of birth?",
+      callerAction: undefined,
+      toolRequest: undefined,
+      shouldEndCall: false
+    },
+    instruction: isNameCorrection
+      ? "Ask the caller to spell the first name before attempting another verification. Do not continue as a new patient unless the caller explicitly authorizes that choice."
+      : "Ask the caller to correct the date of birth before attempting another verification. Do not ask for unrelated identity details."
+  };
+}
 
 function pendingAction(tool: ToolRequest): PendingPatientWorkflowAction {
   return {

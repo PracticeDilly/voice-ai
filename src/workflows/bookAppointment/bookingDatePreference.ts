@@ -1,4 +1,9 @@
 const defaultTimezone = "America/Los_Angeles";
+const weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const monthNames = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"
+];
 
 export function normalizeBookingDatePreference(
   value: unknown,
@@ -34,7 +39,10 @@ export function normalizeBookingDatePreference(
   }
 
   const daysUntil = (weekday - dayOfWeek(today) + 7) % 7;
-  const offset = normalized.includes("next ") ? (daysUntil === 0 ? 7 : daysUntil + 7) : daysUntil;
+  // In voice conversations, "next Tuesday" and "Tuesday next week" mean the
+  // next upcoming Tuesday. Only move a full week when today is already that
+  // weekday; adding seven days to every non-zero result skips the upcoming day.
+  const offset = normalized.includes("next ") && daysUntil === 0 ? 7 : daysUntil;
   return formatDate(addDays(today, offset));
 }
 
@@ -73,6 +81,29 @@ export function addDaysToBookingDate(value: unknown, days: number): string | und
     month: date.getUTCMonth() + 1,
     day: date.getUTCDate(),
     year: date.getUTCFullYear()
+  });
+}
+
+export function correctBookingWeekdayMentions(text: string, knownDates: unknown[]): string {
+  const dates = knownDates
+    .map(parseNormalizedDate)
+    .filter((date): date is Date => date !== undefined);
+  if (dates.length === 0) {
+    return text;
+  }
+
+  const dateMention = /\b(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday),?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?/gi;
+  return text.replace(dateMention, (mention, weekday: string, month: string, day: string, year?: string) => {
+    const monthIndex = monthNames.findIndex((name) => name.toLowerCase() === month.toLowerCase());
+    const numericDay = Number(day);
+    const match = dates.find((date) => date.getUTCMonth() === monthIndex
+      && date.getUTCDate() === numericDay
+      && (!year || date.getUTCFullYear() === Number(year)));
+    if (!match) {
+      return mention;
+    }
+
+    return mention.replace(new RegExp(weekday, "i"), weekdayNames[match.getUTCDay()]);
   });
 }
 

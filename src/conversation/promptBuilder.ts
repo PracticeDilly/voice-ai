@@ -51,6 +51,7 @@ export function buildSystemPrompt(session: CallSession): string {
   const office = session.officeContext;
   const today = currentOfficeDate(session.startedAt, office?.timezone ?? defaultOfficeTimezone);
   const providerNames = officeProviderNames(office?.providers);
+  const calendarGuidance = bookingCalendarGuidance(session);
   return [
     "You are the AI receptionist for a dental/healthcare office.",
     "Return only valid JSON with keys: reply, intent, callerAction, toolRequest, collectedFields, shouldEndCall.",
@@ -72,6 +73,7 @@ export function buildSystemPrompt(session: CallSession): string {
     "- Answer the latest caller utterance in context, ask one concise question at a time, and preserve all known fields.",
     "- Treat explicit corrections as authoritative; acknowledge the corrected field and do not ask the caller to repeat unrelated fields.",
     "- If information is ambiguous, ask one targeted clarification instead of guessing. Keep DOB and appointment dates strictly separate.",
+    "- When speaking a weekday with a calendar date, calculate the weekday from the numeric date; never pair a date with a guessed weekday.",
     "- Use short, voice-friendly language without IDs, JSON names, backend states, or internal policy explanations.",
     "- Treat workflowState.failureReason as internal guidance. Paraphrase it into warm, patient-friendly language; never mention backend states or read technical wording verbatim when a natural explanation is possible.",
     "- Do not claim that an appointment is booked, available, unavailable, or confirmed without the corresponding backend result.",
@@ -94,7 +96,7 @@ export function buildSystemPrompt(session: CallSession): string {
     "- If the caller chooses by date, day, time, or ordinal, resolve it to the matching backend appointmentId.",
     "- Do not request CONFIRM_APPOINTMENT without a selected appointment; if ambiguous, ask which appointment they want. Do not re-ask known identity details unless corrected or still required after a failed match.",
     "- For appointment lookups and confirmations, verification uses the caller phone number first, then first name only when needed, then date of birth only when needed; do not disclose appointment details before workflowState.context.patientVerified is true. If a phone-backed patient cannot be matched by first name, ask for the first-name spelling and retry before offering staff. Do not ask for last name for returning-patient verification.",
-    "- FIRST_NAME_NO_MATCH and DOB_NO_MATCH mean the caller's identity details did not match records linked to the phone number. Ask for a correction first, but if the caller explicitly chooses to continue as a new patient for a booking, honor that choice once, request BOOK_APPOINTMENT with continueAsNewPatient true, and do not search for the existing patient again. Do not use this path for next-appointment or confirmation.",
+    "- FIRST_NAME_NO_MATCH and DOB_NO_MATCH mean the caller's identity details did not match records linked to the phone number. Ask for a correction first, but if the caller explicitly chooses to continue as a new patient for a booking, honor that choice once, request BOOK_APPOINTMENT with continueAsNewPatient true, and do not search for the existing patient again. For next-appointment or confirmation, do not use this path; handle the no-match without asking whether the caller is new and keep the interaction in the existing-record workflow.",
     "- For booking, use exact fields firstName, lastName, dob, patientPhone, patientEmail, bookingReason, appointmentTypeId, providerName, datePreference, timePreference, slotDate, slotTime, fromDate, toDate, callerConfirmedBooking. Send dates as MM/dd/yyyy. Search from the requested date through seven calendar days after it. The maximum allowed difference between fromDate and toDate is 7 days. Store DOB as dob, never dateOfBirth, and preserve known values.",
     "- Request BOOK_APPOINTMENT once firstName, dob, bookingReason and an eligible appointmentTypeId are known. Do not promise a lookup without requesting the tool. A response needing identity is not an availability result; never describe it as no openings or a slot lookup failure.",
     "- Do not transfer because of a booking reason or provider; request BOOK_APPOINTMENT and follow workflowState unless staff is explicitly requested. Use only office-context providers, copy names exactly, and auto-select the sole provider.",
@@ -124,6 +126,7 @@ export function buildSystemPrompt(session: CallSession): string {
     `Office name: ${office?.officeName ?? "Unknown"}`,
     `Office phone number: ${office?.phoneNumber ?? session.toNumber ?? "Not provided"}`,
     `Timezone: ${office?.timezone ?? defaultOfficeTimezone}`,
+    `Calendar date checks: ${calendarGuidance}`,
     `AI mode: ${office?.aiMode ?? "UNKNOWN"}`,
     `Greeting: ${office?.aiGreeting ?? "Not provided"}`,
     `Business hours: ${office?.businessHoursSummary ?? "Not provided"}`,
@@ -135,6 +138,35 @@ export function buildSystemPrompt(session: CallSession): string {
     `appointmentTypes by patient eligibility (duration in minutes; IDs are online-scheduling IDs, not PMS IDs): ${JSON.stringify(office?.appointmentTypes ?? {})}`,
     `Office facts: ${(office?.facts ?? []).join(" | ")}`
   ].join("\n");
+}
+
+function bookingCalendarGuidance(session: CallSession): string {
+  const values: unknown[] = [];
+  const context = session.workflowState?.context;
+  if (context?.slotDate) {
+    values.push(context.slotDate);
+  }
+  if (context?.slots && Array.isArray(context.slots)) {
+    values.push(...context.slots.map((slot) => (
+      slot && typeof slot === "object" && !Array.isArray(slot)
+        ? (slot as { slotDate?: unknown }).slotDate
+        : undefined
+    )));
+  }
+
+  const checks = values
+    .filter((value): value is string => typeof value === "string" && /^\d{2}\/\d{2}\/\d{4}$/.test(value))
+    .filter((value, index, all) => all.indexOf(value) === index)
+    .map((value) => `${value} is ${weekdayForDate(value)}`);
+  return checks.length > 0 ? checks.join("; ") : "No returned booking dates yet";
+}
+
+function weekdayForDate(value: string): string {
+  const [month, day, year] = value.split("/").map(Number);
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    weekday: "long"
+  }).format(new Date(Date.UTC(year, month - 1, day)));
 }
 
 function currentOfficeDate(startedAt: string, timezone: string): string {

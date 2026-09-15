@@ -31,6 +31,14 @@ export function normalizeBookingArguments(
   for (const fieldName of bookingFieldNames) {
     copyKnownValue(normalized, fieldName, toolArguments?.[fieldName] ?? session.collectedFields[fieldName]);
   }
+  copyKnownValue(
+    normalized,
+    "dob",
+    toolArguments?.dob
+      ?? toolArguments?.dateOfBirth
+      ?? session.collectedFields.dob
+      ?? session.collectedFields.dateOfBirth
+  );
   applySingleOfficeContextProvider(normalized, session);
 
   copyKnownValue(normalized, "fromNumber", normalized.fromNumber ?? session.fromNumber);

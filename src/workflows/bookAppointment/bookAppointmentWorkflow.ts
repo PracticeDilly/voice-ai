@@ -69,6 +69,24 @@ export const bookAppointmentWorkflow: ConversationWorkflow = {
         }
       }
     };
+  },
+  applyToolResultPolicy(session: CallSession, toolName: string, toolResult: unknown): ToolPolicyDecision | undefined {
+    if (toolName !== "BOOK_APPOINTMENT"
+      || !isSuccessfulToolResult(toolResult)
+      || session.workflowState?.workflow !== "BOOK_APPOINTMENT"
+      || session.workflowState.state !== "NEEDS_INPUT"
+      || session.workflowState.requiredField === "dob"
+      || !hasMeaningfulValue(session.collectedFields.dob ?? session.collectedFields.dateOfBirth)) {
+      return undefined;
+    }
+
+    const requiredField = session.workflowState.requiredField;
+    return requiredField
+      ? {
+        instruction: `The caller's date of birth is already known and must not be requested again. The backend requires ${requiredField} next. Ask only for that required field; for appointmentTypeId, derive the eligible ID from bookingReason and office context and submit BOOK_APPOINTMENT.`,
+        repromptContext: undefined
+      }
+      : undefined;
   }
 };
 
@@ -147,4 +165,15 @@ function hasBookingField(fields: Record<string, unknown> | undefined): boolean {
     "callerConfirmedBooking"
   ];
   return bookingFields.some((field) => fields[field] !== undefined && fields[field] !== null && fields[field] !== "");
+}
+
+function isSuccessfulToolResult(toolResult: unknown): boolean {
+  return typeof toolResult === "object"
+    && toolResult !== null
+    && "ok" in toolResult
+    && (toolResult as { ok?: unknown }).ok === true;
+}
+
+function hasMeaningfulValue(value: unknown): boolean {
+  return value !== undefined && value !== null && value !== "";
 }
