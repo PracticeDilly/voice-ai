@@ -390,6 +390,40 @@ test("does not re-ask a known DOB when booking needs another field", () => {
   assert.match(decision?.instruction ?? "", /appointmentTypeId/i);
 });
 
+test("repeats existing booking slots without restarting the booking search", () => {
+  const call = session({
+    currentIntent: "BOOK_APPOINTMENT",
+    workflowState: {
+      contractVersion: 1,
+      workflow: "BOOK_APPOINTMENT",
+      state: "SELECT_SLOT",
+      requiredField: "slotDate",
+      allowedActions: ["BOOK_APPOINTMENT"],
+      context: {
+        slots: [
+          { slotDate: "09/16/2026", slotTime: "10:30 AM" },
+          { slotDate: "09/16/2026", slotTime: "01:00 PM" }
+        ]
+      }
+    }
+  });
+  call.transcript.push({
+    speaker: "patient",
+    text: "Can you please repeat?",
+    at: "2026-09-15T11:21:54.000Z"
+  });
+
+  const decision = applyWorkflowTurnPolicies(call, {
+    intent: "BOOK_APPOINTMENT",
+    toolRequest: {
+      name: "BOOK_APPOINTMENT",
+      arguments: { providerName: "David Johnson" }
+    }
+  });
+
+  assert.equal(decision?.repromptContext?.type, "BOOKING_SLOT_REPEAT");
+});
+
 test("forces fresh appointment lookup for follow-up questions after confirmation", () => {
   const decision = applyWorkflowTurnPolicies(session({
     collectedFields: {

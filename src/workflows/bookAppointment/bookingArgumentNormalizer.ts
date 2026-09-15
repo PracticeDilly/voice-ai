@@ -1,5 +1,5 @@
 import { CallSession } from "../../calls/callSession.js";
-import { addDaysToBookingDate, normalizeBookingDatePreference } from "./bookingDatePreference.js";
+import { normalizeBookingDatePreference } from "./bookingDatePreference.js";
 import {
   singleOfficeContextProviderName
 } from "./officeContextProviders.js";
@@ -49,19 +49,28 @@ export function normalizeBookingArguments(
     session.startedAt
   );
   copyKnownValue(normalized, "datePreference", datePreference);
+
+  const hasToolDatePreference = hasValue(toolArguments?.datePreference);
+  const hasToolFromDate = hasValue(toolArguments?.fromDate);
+  const hasToolToDate = hasValue(toolArguments?.toDate);
+  const fromDateInput = hasToolDatePreference && !hasToolFromDate
+    ? normalized.datePreference
+    : normalized.fromDate ?? normalized.datePreference;
+  const toDateInput = hasToolToDate
+    ? normalized.toDate
+    : (hasToolDatePreference || hasToolFromDate)
+      ? fromDateInput
+      : normalized.toDate ?? fromDateInput;
   const fromDate = normalizeBookingDatePreference(
-    normalized.fromDate ?? normalized.datePreference,
+    fromDateInput,
     session.officeContext?.timezone,
     session.startedAt
   );
-  let toDate = normalizeBookingDatePreference(
-    normalized.toDate ?? fromDate,
+  const toDate = normalizeBookingDatePreference(
+    toDateInput ?? fromDate,
     session.officeContext?.timezone,
     session.startedAt
   );
-  if (fromDate !== undefined && toDate === fromDate) {
-    toDate = addDaysToBookingDate(fromDate, 7);
-  }
   copyKnownValue(normalized, "fromDate", fromDate);
   copyKnownValue(normalized, "toDate", toDate);
 

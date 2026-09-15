@@ -328,6 +328,9 @@ export class AiReceptionistOrchestrator {
     if (policyDecision.repromptContext?.type === "BOOKING_CONFIRMATION") {
       return this.modelClient.bookingResponse(session, "AWAITING_CONFIRMATION");
     }
+    if (policyDecision.repromptContext?.type === "BOOKING_SLOT_REPEAT") {
+      return this.modelClient.bookingResponse(session, "REPEAT_SLOTS");
+    }
     if (policyDecision.repromptContext) {
       return this.continueFromPolicyReprompt(
         session,

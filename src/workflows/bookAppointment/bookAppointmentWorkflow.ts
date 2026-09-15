@@ -14,6 +14,10 @@ export const bookAppointmentWorkflow: ConversationWorkflow = {
       return undefined;
     }
 
+    if (isBookingSlotRepeatRequest(session, result)) {
+      return { repromptContext: { type: "BOOKING_SLOT_REPEAT" } };
+    }
+
     if (isBookingAwaitingConfirmation(session)) {
       return bookingConfirmationDecision(result);
     }
@@ -97,6 +101,18 @@ function isBookingIntent(intent: string | undefined): boolean {
 function isBookingAwaitingConfirmation(session: CallSession): boolean {
   return session.workflowState?.workflow === "BOOK_APPOINTMENT"
     && session.workflowState.state === "REQUIRES_CONFIRMATION";
+}
+
+function isBookingSlotRepeatRequest(session: CallSession, result: ModelTurnResult): boolean {
+  if (result.toolRequest?.name !== "BOOK_APPOINTMENT"
+    || session.workflowState?.workflow !== "BOOK_APPOINTMENT"
+    || session.workflowState.state !== "SELECT_SLOT") {
+    return false;
+  }
+
+  const lastCallerTurn = [...session.transcript].reverse().find((turn) => turn.speaker === "patient");
+  const callerText = lastCallerTurn?.text.trim().toLowerCase() ?? "";
+  return /\b(repeat|again|timings?|times?)\b/.test(callerText);
 }
 
 function bookingConfirmationDecision(result: ModelTurnResult): ToolPolicyDecision | undefined {

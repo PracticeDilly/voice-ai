@@ -1,6 +1,6 @@
 import type { CallSession } from "../../calls/callSession.js";
 
-export type BookingResponsePurpose = "AWAITING_CONFIRMATION" | "HANDOFF";
+export type BookingResponsePurpose = "AWAITING_CONFIRMATION" | "HANDOFF" | "REPEAT_SLOTS";
 
 export function bookingResponseContext(session: CallSession, purpose: BookingResponsePurpose) {
   return {
@@ -9,6 +9,7 @@ export function bookingResponseContext(session: CallSession, purpose: BookingRes
     selectedAppointment: session.workflowState?.context,
     requiresNewCallerApproval: purpose === "AWAITING_CONFIRMATION",
     transferringToStaff: purpose === "HANDOFF",
+    repeatingAvailableSlots: purpose === "REPEAT_SLOTS",
     toolExecutionAllowed: false
   };
 }
@@ -16,5 +17,6 @@ export function bookingResponseContext(session: CallSession, purpose: BookingRes
 export const bookingResponseInstruction =
   "Write a brief, natural reply using responseContext and the conversation. Return JSON containing only reply. "
   + "For AWAITING_CONFIRMATION, the appointment is not booked; address the caller's question and seek permission for the selected appointment. "
+  + "For REPEAT_SLOTS, repeat the available appointment date and times from responseContext.selectedAppointment without requesting a tool or changing the workflow. "
   + "For HANDOFF, explain that office staff will assist, without claiming booking succeeded. "
   + "Do not request tools, extract fields, or infer new caller approval in this response.";

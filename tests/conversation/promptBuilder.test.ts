@@ -16,11 +16,13 @@ test("builds a compact workflow-oriented prompt", () => {
   assert.match(prompt, /Store DOB as dob, never dateOfBirth/);
   assert.match(prompt, /without asking whether the caller is new/i);
   assert.match(prompt, /do not ask for or require last name/i);
-  assert.match(prompt, /always derive the closest eligible appointment type/i);
+  assert.match(prompt, /resolve the closest eligible appointment type/i);
   assert.match(prompt, /For new patients/i);
   assert.match(prompt, /fromDate\/toDate/i);
-  assert.match(prompt, /Search from the requested date through seven calendar days after it/i);
+  assert.match(prompt, /For a single requested date such as today, tomorrow, or a named calendar date/i);
   assert.match(prompt, /maximum allowed difference between fromDate and toDate is 7 days/i);
+  assert.match(prompt, /Appointment type resolution is mandatory before every BOOK_APPOINTMENT request/i);
+  assert.match(prompt, /Never submit BOOK_APPOINTMENT with a missing, null, string-valued, or cross-category appointmentTypeId/i);
   assert.ok(prompt.length < 11000, `prompt is too long: ${prompt.length}`);
 });
 

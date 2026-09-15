@@ -44,7 +44,7 @@ test("does not preserve a model placeholder as the patient phone", () => {
   assert.equal(prepared.arguments.fromNumber, "+15551234567");
 });
 
-test("expands a requested date into the full seven-day availability window", () => {
+test("keeps a requested date as an exact availability window", () => {
   const callSession = session();
   callSession.officeContext = {
     officeCode: "OFC001",
@@ -59,7 +59,7 @@ test("expands a requested date into the full seven-day availability window", () 
   });
 
   assert.equal(prepared.arguments.fromDate, "09/04/2026");
-  assert.equal(prepared.arguments.toDate, "09/11/2026");
+  assert.equal(prepared.arguments.toDate, "09/04/2026");
 });
 
 test("preserves the model-provided availability range", () => {
@@ -74,6 +74,22 @@ test("preserves the model-provided availability range", () => {
 
   assert.equal(prepared.arguments.fromDate, "09/04/2026");
   assert.equal(prepared.arguments.toDate, "09/11/2026");
+});
+
+test("does not reuse a stale availability range when a new date is requested", () => {
+  const callSession = session();
+  callSession.collectedFields.fromDate = "09/15/2026";
+  callSession.collectedFields.toDate = "09/22/2026";
+
+  const prepared = new BookAppointmentToolAdapter().prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: {
+      datePreference: "09/16/2026"
+    }
+  });
+
+  assert.equal(prepared.arguments.fromDate, "09/16/2026");
+  assert.equal(prepared.arguments.toDate, "09/16/2026");
 });
 
 test("keeps initial provider name when it matches office context", () => {
@@ -175,7 +191,7 @@ test("resolves next-week weekday to the next upcoming calendar date", () => {
 
   assert.equal(prepared.arguments.datePreference, "09/15/2026");
   assert.equal(prepared.arguments.fromDate, "09/15/2026");
-  assert.equal(prepared.arguments.toDate, "09/22/2026");
+  assert.equal(prepared.arguments.toDate, "09/15/2026");
 });
 
 test("preserves a DOB held under the legacy collected-field alias", () => {

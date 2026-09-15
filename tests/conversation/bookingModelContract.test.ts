@@ -54,6 +54,33 @@ test("asks the model to repair the logged malformed payload before returning it 
   assert.match(JSON.stringify(requests[1]), /dateOfBirth/);
 });
 
+test("gives an explicit appointment-type repair instruction when the model omits the ID", async () => {
+  const call = session();
+  call.officeContext = {
+    officeCode: "TEST",
+    timezone: "America/New_York",
+    appointmentTypes: {
+      NEW_PATIENT: [{ appointmentTypeId: 13, type: "Root Canal", description: "Endodontic treatment", duration: 90 }]
+    }
+  };
+  call.workflowState = {
+    contractVersion: 1,
+    workflow: "BOOK_APPOINTMENT",
+    state: "NEEDS_INPUT",
+    requiredField: "appointmentTypeId",
+    context: { patientType: "NEW_PATIENT" }
+  };
+  const { client, requests } = mockModel([
+    booking({ firstName: "Mary", dob: "04/01/2011", bookingReason: "Root Canal Treatment" }),
+    booking({ firstName: "Mary", dob: "04/01/2011", bookingReason: "Root Canal Treatment", appointmentTypeId: 13 })
+  ]);
+
+  const result = await client.nextTurn(call, "April 1, 2011");
+
+  assert.equal(result.toolRequest?.arguments.appointmentTypeId, 13);
+  assert.match(JSON.stringify(requests[1]), /omitted the required appointmentTypeId/i);
+});
+
 test("bounds invalid model repair to one retry", async () => {
   const { client, requests } = mockModel([booking({}), booking({})]);
   await assert.rejects(client.nextTurn(session(), "Book it"), BookingWorkflowError);

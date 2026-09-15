@@ -191,11 +191,14 @@ export class ModelClient {
       collectedFieldNames: Object.keys(result.collectedFields ?? {})
     });
     if (repairAttempt === 0) {
+      const repairInstruction = contractError.includes("appointmentTypeId")
+        ? "Your previous BOOK_APPOINTMENT omitted the required appointmentTypeId. Correct the JSON now: use workflowState.context.patientType, select the closest matching numeric ID from the corresponding appointmentTypes catalog using bookingReason and its description, preserve all known fields, and submit BOOK_APPOINTMENT. Do not ask the caller for the ID and do not omit it again."
+        : "Correct your previous JSON using the tool contract and known conversation context. Recover known values without asking the caller to repeat them. If information is genuinely missing or ambiguous, ask naturally instead of requesting a tool.";
       return this.createModelTurn(session, {
         ...payload,
         rejectedModelResult: result,
         validationError: contractError,
-        instruction: "Correct your previous JSON using the tool contract and known conversation context. Recover known values without asking the caller to repeat them. If information is genuinely missing or ambiguous, ask naturally instead of requesting a tool."
+        instruction: repairInstruction
       }, repairAttempt + 1);
     }
     throw new BookingWorkflowError("Booking model contract remained invalid after correction");
