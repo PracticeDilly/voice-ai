@@ -3,6 +3,14 @@ import test from "node:test";
 import { CallSession } from "../../src/calls/callSession.js";
 import { BookAppointmentToolAdapter } from "../../src/workflows/bookAppointment/bookAppointmentToolAdapter.js";
 import { correctBookingWeekdayMentions } from "../../src/workflows/bookAppointment/bookingDatePreference.js";
+import {
+  allNewPatientDataConfirmed,
+  markNewPatientSummaryPrompt,
+  newPatientConfirmationFields,
+  pendingNewPatientConfirmation,
+  markNewPatientConfirmationPrompt,
+  synchronizeNewPatientDataConfirmation
+} from "../../src/workflows/bookAppointment/newPatientDataConfirmation.js";
 
 test("prepares booking request with caller number and collected conversational fields", () => {
   const callSession = session();
@@ -10,6 +18,7 @@ test("prepares booking request with caller number and collected conversational f
   callSession.collectedFields.firstName = "Priya";
   callSession.collectedFields.dob = "1990-04-15";
   callSession.collectedFields.bookingReason = "tooth pain";
+  callSession.collectedFields.gender = "Female";
   callSession.collectedFields.datePreference = "09/04/2026";
   callSession.collectedFields.timePreference = "morning";
 
@@ -23,6 +32,7 @@ test("prepares booking request with caller number and collected conversational f
   assert.equal(prepared.arguments.firstName, "Priya");
   assert.equal(prepared.arguments.dob, "1990-04-15");
   assert.equal(prepared.arguments.bookingReason, "tooth pain");
+  assert.equal(prepared.arguments.gender, "Female");
   assert.match(new BookAppointmentToolAdapter().validateTool(callSession, prepared) ?? "", /office context only/);
   assert.equal(prepared.arguments.datePreference, "09/04/2026");
   assert.equal(prepared.arguments.timePreference, "morning");
@@ -419,6 +429,82 @@ test("uses the persisted new-patient candidate before backend state changes", ()
     name: "BOOK_APPOINTMENT",
     arguments: { appointmentTypeId: 13 }
   }), undefined);
+});
+
+test("blocks PMS execution until complete new-patient data is confirmed", () => {
+  const callSession = session();
+  callSession.fromNumber = "+15551234567";
+  callSession.newPatientBookingCandidate = true;
+  callSession.workflowState = {
+    contractVersion: 1,
+    workflow: "BOOK_APPOINTMENT",
+    state: "NEEDS_NEW_PATIENT_DATA",
+    context: { patientType: "NEW_PATIENT" }
+  };
+  callSession.collectedFields = {
+    firstName: "Madi",
+    lastName: "Brown",
+    dob: "11/11/1999",
+    gender: "Female",
+    patientEmail: "madi.brown@example.com",
+    appointmentTypeId: 13
+  };
+  callSession.officeContext = {
+    officeCode: "OFC001",
+    timezone: "America/Los_Angeles",
+    appointmentTypes: {
+      NEW_PATIENT: [{ appointmentTypeId: 13, type: "Initial exam", duration: 60 }]
+    }
+  };
+
+  const adapter = new BookAppointmentToolAdapter();
+  const prepared = adapter.prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: {}
+  });
+  assert.match(adapter.validateTool(callSession, prepared) ?? "", /explicit confirmation of all new-patient data/);
+
+  synchronizeNewPatientDataConfirmation(callSession, {
+    confirmedFields: newPatientConfirmationFields
+  });
+  markNewPatientSummaryPrompt(callSession);
+  synchronizeNewPatientDataConfirmation(callSession, { collectedFields: {} }, "Yes, all of that is correct.");
+  assert.equal(adapter.validateTool(callSession, prepared), undefined);
+});
+
+test("confirms new-patient fields once and reopens only a corrected field", () => {
+  const callSession = session();
+  callSession.fromNumber = "+15551234567";
+  callSession.newPatientBookingCandidate = true;
+  callSession.collectedFields = {
+    firstName: "Madi",
+    lastName: "Brown",
+    dob: "11/11/1999",
+    gender: "Female",
+    patientEmail: "madi.brown@example.com"
+  };
+
+  synchronizeNewPatientDataConfirmation(callSession, { collectedFields: callSession.collectedFields });
+  assert.equal(pendingNewPatientConfirmation(callSession), "firstName");
+
+  markNewPatientConfirmationPrompt(callSession, "firstName");
+  synchronizeNewPatientDataConfirmation(callSession, { collectedFields: { firstName: "Madi" } }, "M A D I");
+  assert.equal(callSession.newPatientDataConfirmation?.prompted?.kind, "CONFIRM");
+  synchronizeNewPatientDataConfirmation(callSession, { collectedFields: {} }, "Yes, that's correct.");
+  assert.equal(pendingNewPatientConfirmation(callSession), "lastName");
+
+  synchronizeNewPatientDataConfirmation(callSession, {
+    confirmedFields: newPatientConfirmationFields.filter((field) => field !== "firstName")
+  });
+  markNewPatientSummaryPrompt(callSession);
+  synchronizeNewPatientDataConfirmation(callSession, { collectedFields: {} }, "Yes, all of that is correct.");
+  assert.equal(allNewPatientDataConfirmed(callSession), true);
+
+  synchronizeNewPatientDataConfirmation(callSession, {
+    collectedFields: { patientEmail: "madi.brown+new@example.com" }
+  });
+  assert.equal(pendingNewPatientConfirmation(callSession), "patientEmail");
+  assert.equal(callSession.newPatientDataConfirmation?.confirmed.firstName, "Madi");
 });
 
 function session(): CallSession {

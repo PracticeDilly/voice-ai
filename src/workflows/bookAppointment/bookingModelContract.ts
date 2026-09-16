@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { CallSession } from "../../calls/callSession.js";
 import type { ModelTurnResult } from "../../conversation/modelClient.js";
+import { bookingPatientType } from "./appointmentTypeSelection.js";
 
 const textField = z.string().nullable().optional();
 export class BookingWorkflowError extends Error {}
@@ -11,6 +12,7 @@ const bookingFields = z.object({
   dob: textField,
   fromNumber: textField,
   bookingReason: textField,
+  gender: textField,
   appointmentTypeId: z.number().int().nullable().optional(),
   providerName: textField,
   patientPhone: textField,
@@ -38,6 +40,14 @@ export function bookingModelContractError(session: CallSession, result: ModelTur
       if (isBlank(fields[field])) {
         return `BOOK_APPOINTMENT is missing ${field}.`;
       }
+    }
+    if ((fields.continueAsNewPatient === true || bookingPatientType(session) === "NEW_PATIENT")
+      && isBlank(fields.gender)) {
+      return "BOOK_APPOINTMENT is missing gender for the new-patient booking.";
+    }
+    if ((fields.continueAsNewPatient === true || bookingPatientType(session) === "NEW_PATIENT")
+      && isBlank(fields.patientEmail)) {
+      return "BOOK_APPOINTMENT is missing patientEmail for the new-patient booking.";
     }
     if (!isValidAppointmentTypeId(fields.appointmentTypeId)) {
       return "BOOK_APPOINTMENT appointmentTypeId must be an integer that exists in the eligible office catalog.";

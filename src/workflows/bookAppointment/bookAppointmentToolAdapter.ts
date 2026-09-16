@@ -6,6 +6,7 @@ import { isBookingDatePreferenceValid, isBookingDateRangeValid } from "./booking
 import { normalizeBookingArguments } from "./bookingArgumentNormalizer.js";
 import { providerNameMatchesOfficeContext } from "./officeContextProviders.js";
 import { bookingPatientType, isEligibleAppointmentTypeId } from "./appointmentTypeSelection.js";
+import { allNewPatientDataConfirmed, hasAllNewPatientData, isNewPatientBooking } from "./newPatientDataConfirmation.js";
 
 const SLOT_NOT_AVAILABLE_MESSAGE = "Select a slot returned by the availability search.";
 
@@ -20,6 +21,7 @@ export class BookAppointmentToolAdapter implements WorkflowToolAdapter {
       callSid: session.callSid,
       officeCode: session.officeCode,
       hasBookingReason: preparedArguments.bookingReason !== undefined,
+      hasGender: preparedArguments.gender !== undefined,
       appointmentTypeId: preparedArguments.appointmentTypeId,
       hasProviderName: preparedArguments.providerName !== undefined,
       hasDatePreference: preparedArguments.datePreference !== undefined,
@@ -46,6 +48,11 @@ export class BookAppointmentToolAdapter implements WorkflowToolAdapter {
     }
     const appointmentTypeId = tool.arguments?.appointmentTypeId;
     const patientType = bookingPatientType(session);
+    if (isNewPatientBooking(session)
+      && hasAllNewPatientData(session)
+      && !allNewPatientDataConfirmed(session)) {
+      return "BOOK_APPOINTMENT requires explicit confirmation of all new-patient data before execution.";
+    }
     if (session.officeContext && !isEligibleAppointmentTypeId(session, appointmentTypeId)) {
       return `BOOK_APPOINTMENT requires a numeric ${patientType} appointmentTypeId that exists in office context; resolve it from bookingReason before execution.`;
     }

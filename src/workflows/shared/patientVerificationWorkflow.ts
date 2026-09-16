@@ -116,6 +116,7 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
   applyToolResultPolicy(session: CallSession, toolName: string, toolResult: unknown): ToolPolicyDecision | undefined {
     if (toolName === "BOOK_APPOINTMENT" && isCompletedBookingResult(toolResult)) {
       session.newPatientBookingCandidate = false;
+      delete session.newPatientDataConfirmation;
       return undefined;
     }
 
@@ -158,6 +159,7 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
     }
 
     session.newPatientBookingCandidate = false;
+    delete session.newPatientDataConfirmation;
     session.verifiedIdentityFingerprint = identityFingerprint(session);
 
     const pending = session.pendingPatientWorkflow;
@@ -331,6 +333,7 @@ function continueAsNewPatientBooking(session: CallSession, result: ModelTurnResu
   };
   delete session.pendingActions.VERIFY_PATIENT_IDENTITY;
   session.newPatientBookingCandidate = true;
+  session.newPatientDataConfirmation = { confirmed: {} };
   ensurePendingBooking(session, result);
 
   const pending = session.pendingPatientWorkflow;

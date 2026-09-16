@@ -14,6 +14,7 @@ import {
   isEligibleAppointmentTypeId
 } from "../workflows/bookAppointment/appointmentTypeSelection.js";
 import { logger } from "../utils/logger.js";
+import { newPatientDataConfirmationContext } from "../workflows/bookAppointment/newPatientDataConfirmation.js";
 
 export interface ModelTurnResult {
   reply?: string;
@@ -21,6 +22,7 @@ export interface ModelTurnResult {
   intent?: string;
   callerAction?: CallerActionDecision;
   collectedFields?: Record<string, unknown>;
+  confirmedFields?: string[];
   shouldEndCall?: boolean;
 }
 
@@ -46,7 +48,8 @@ export class ModelClient {
       collectedFields: session.collectedFields,
       lastToolResults: session.lastToolResults,
       pendingActions: session.pendingActions,
-      appointmentSelections: session.appointmentSelections
+      appointmentSelections: session.appointmentSelections,
+      newPatientDataConfirmation: newPatientDataConfirmationContext(session)
     });
   }
 
@@ -61,7 +64,8 @@ export class ModelClient {
       lastCallerReply: this.findLastCallerReply(session),
       collectedFields: session.collectedFields,
       pendingActions: session.pendingActions,
-      appointmentSelections: session.appointmentSelections
+      appointmentSelections: session.appointmentSelections,
+      newPatientDataConfirmation: newPatientDataConfirmationContext(session)
     });
   }
 
@@ -80,7 +84,8 @@ export class ModelClient {
       lastCallerReply: this.findLastCallerReply(session),
       collectedFields: session.collectedFields,
       pendingActions: session.pendingActions,
-      appointmentSelections: session.appointmentSelections
+      appointmentSelections: session.appointmentSelections,
+      newPatientDataConfirmation: newPatientDataConfirmationContext(session)
     });
   }
 

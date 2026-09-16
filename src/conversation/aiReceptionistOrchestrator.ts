@@ -17,6 +17,7 @@ import { prepareBookingFollowup } from "../workflows/bookAppointment/bookingFoll
 import { bookingReason, isEligibleAppointmentTypeId } from "../workflows/bookAppointment/appointmentTypeSelection.js";
 import { callerActionRequestsStaffTransfer } from "../workflows/shared/callerActionDecision.js";
 import { correctBookingWeekdayMentions } from "../workflows/bookAppointment/bookingDatePreference.js";
+import { synchronizeNewPatientDataConfirmation } from "../workflows/bookAppointment/newPatientDataConfirmation.js";
 
 const MAX_PATIENT_VERIFICATION_TOOL_CHAIN_DEPTH = 3;
 const COMPLETE_CALL_MAX_ATTEMPTS = 3;
@@ -110,6 +111,7 @@ export class AiReceptionistOrchestrator {
     if (firstResult.intent) {
       session.currentIntent = firstResult.intent;
     }
+    synchronizeNewPatientDataConfirmation(session, firstResult, callerText);
     if (firstResult.collectedFields) {
       session.collectedFields = {
         ...session.collectedFields,
@@ -145,6 +147,7 @@ export class AiReceptionistOrchestrator {
     if (finalResult.intent) {
       session.currentIntent = finalResult.intent;
     }
+    synchronizeNewPatientDataConfirmation(session, finalResult);
     if (finalResult.collectedFields) {
       session.collectedFields = {
         ...session.collectedFields,
@@ -511,6 +514,7 @@ export class AiReceptionistOrchestrator {
     if (repromptResult.intent) {
       session.currentIntent = repromptResult.intent;
     }
+    synchronizeNewPatientDataConfirmation(session, repromptResult);
     if (repromptResult.collectedFields) {
       session.collectedFields = {
         ...session.collectedFields,

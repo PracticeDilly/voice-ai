@@ -25,6 +25,34 @@ test("requires an appointment type and validates its JSON type", () => {
   assert.equal(bookingModelContractError(session(), booking(validFields)), undefined);
 });
 
+test("requires gender only for an explicitly authorized new-patient booking", () => {
+  assert.match(
+    bookingModelContractError(session(), booking({ ...validFields, continueAsNewPatient: true }))!,
+    /missing gender/i
+  );
+  assert.equal(
+    bookingModelContractError(session(), booking({ ...validFields, continueAsNewPatient: true, gender: "Female" })),
+    undefined
+  );
+  assert.equal(bookingModelContractError(session(), booking(validFields)), undefined);
+});
+
+test("requires email for an explicitly authorized new-patient booking", () => {
+  assert.match(
+    bookingModelContractError(session(), booking({ ...validFields, continueAsNewPatient: true, gender: "Female" }))!,
+    /missing patientEmail/i
+  );
+  assert.equal(
+    bookingModelContractError(session(), booking({
+      ...validFields,
+      continueAsNewPatient: true,
+      gender: "Female",
+      patientEmail: "nancy@example.com"
+    })),
+    undefined
+  );
+});
+
 test("accepts incremental collection and session-held fields without repeated questions", () => {
   const call = session();
   assert.equal(bookingModelContractError(call, { intent: "BOOK_APPOINTMENT", collectedFields: { firstName: "Nancy" } }), undefined);

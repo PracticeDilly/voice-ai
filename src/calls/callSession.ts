@@ -1,4 +1,5 @@
 import { WorkflowEnvelope } from "../workflows/workflowState.js";
+import type { NewPatientDataConfirmationState } from "../workflows/bookAppointment/newPatientDataConfirmation.js";
 
 export type Speaker = "patient" | "assistant" | "system" | "tool";
 
@@ -97,6 +98,7 @@ export interface CallSession {
   pendingActions: PendingActions;
   pendingPatientWorkflow?: PendingPatientWorkflowAction;
   newPatientBookingCandidate?: boolean;
+  newPatientDataConfirmation?: NewPatientDataConfirmationState;
   verifiedIdentityFingerprint?: string;
   appointmentSelections: AppointmentSelections;
 }

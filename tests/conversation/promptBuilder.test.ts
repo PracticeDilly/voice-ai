@@ -18,6 +18,10 @@ test("builds a compact workflow-oriented prompt", () => {
   assert.match(prompt, /do not ask for or require last name/i);
   assert.match(prompt, /resolve the closest eligible appointment type/i);
   assert.match(prompt, /For new patients/i);
+  assert.match(prompt, /collect firstName, lastName, dob, and gender/i);
+  assert.match(prompt, /never infer it from the patient's name or voice/i);
+  assert.match(prompt, /patientEmail before proceeding with booking/i);
+  assert.match(prompt, /confirm its spelling once/i);
   assert.match(prompt, /fromDate\/toDate/i);
   assert.match(prompt, /For a single requested date such as today, tomorrow, or a named calendar date/i);
   assert.match(prompt, /maximum allowed difference between fromDate and toDate is 7 days/i);

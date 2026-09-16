@@ -3,6 +3,16 @@ import { ModelTurnResult } from "../../conversation/modelClient.js";
 import { callerActionExplicitlyAuthorizesBooking } from "../shared/callerActionDecision.js";
 import { ConversationWorkflow, ToolPolicyDecision } from "../shared/workflowTypes.js";
 import { BookAppointmentToolAdapter } from "./bookAppointmentToolAdapter.js";
+import {
+  allNewPatientDataConfirmed,
+  hasAllNewPatientData,
+  isNewPatientBooking,
+  markNewPatientConfirmationPrompt,
+  markNewPatientSummaryPrompt,
+  newPatientConfirmationQuestion,
+  newPatientSummaryQuestion,
+  pendingNewPatientConfirmation
+} from "./newPatientDataConfirmation.js";
 
 const toolAdapter = new BookAppointmentToolAdapter();
 
@@ -12,6 +22,11 @@ export const bookAppointmentWorkflow: ConversationWorkflow = {
   applyTurnPolicy(session: CallSession, result: ModelTurnResult): ToolPolicyDecision | undefined {
     if (!isBookingIntent(session.currentIntent) && session.workflowState?.workflow !== "BOOK_APPOINTMENT") {
       return undefined;
+    }
+
+    const patientDataConfirmation = newPatientDataConfirmationDecision(session, result);
+    if (patientDataConfirmation) {
+      return patientDataConfirmation;
     }
 
     if (isBookingSlotRepeatRequest(session, result)) {
@@ -98,6 +113,82 @@ function isBookingIntent(intent: string | undefined): boolean {
   return typeof intent === "string" && intent.trim().toUpperCase() === "BOOK_APPOINTMENT";
 }
 
+function newPatientDataConfirmationDecision(
+  session: CallSession,
+  result: ModelTurnResult
+): ToolPolicyDecision | undefined {
+  if (!isNewPatientBooking(session)) {
+    return undefined;
+  }
+
+  if (result.callerAction?.requestedAction === "TRANSFER_TO_STAFF"
+    || result.callerAction?.workflowIntent === "TRANSFER_TO_STAFF") {
+    return undefined;
+  }
+
+  const pendingField = pendingNewPatientConfirmation(session);
+  if (pendingField) {
+    markNewPatientConfirmationPrompt(session, pendingField);
+    return {
+      overrideResult: {
+        ...result,
+        intent: "BOOK_APPOINTMENT",
+        reply: newPatientConfirmationQuestion(session, pendingField),
+        toolRequest: undefined,
+        shouldEndCall: false
+      }
+    };
+  }
+
+  if (hasAllNewPatientData(session) && !allNewPatientDataConfirmed(session)) {
+    if (session.newPatientDataConfirmation?.summaryAwaitingCorrection) {
+      return {
+        overrideResult: {
+          ...result,
+          intent: "BOOK_APPOINTMENT",
+          reply: "Which patient detail would you like to correct?",
+          toolRequest: undefined,
+          shouldEndCall: false
+        }
+      };
+    }
+
+    markNewPatientSummaryPrompt(session);
+    return {
+      overrideResult: {
+        ...result,
+        intent: "BOOK_APPOINTMENT",
+        reply: newPatientSummaryQuestion(session),
+        toolRequest: undefined,
+        shouldEndCall: false
+      }
+    };
+  }
+
+  if (allNewPatientDataConfirmed(session)
+    && !result.toolRequest
+    && isBookingIntent(session.currentIntent)
+    && ["NEEDS_NEW_PATIENT_DATA", "NEEDS_INPUT", "NEEDS_PROVIDER_SELECTION", "NEEDS_PATIENT_IDENTITY"]
+      .includes(session.workflowState?.state ?? "")
+    && hasBookingField(session.collectedFields)) {
+    return {
+      overrideResult: {
+        ...result,
+        intent: "BOOK_APPOINTMENT",
+        toolRequest: {
+          name: "BOOK_APPOINTMENT",
+          arguments: {
+            ...session.collectedFields,
+            continueAsNewPatient: true
+          }
+        }
+      }
+    };
+  }
+
+  return undefined;
+}
+
 function isBookingAwaitingConfirmation(session: CallSession): boolean {
   return session.workflowState?.workflow === "BOOK_APPOINTMENT"
     && session.workflowState.state === "REQUIRES_CONFIRMATION";
@@ -176,7 +267,7 @@ function hasBookingField(fields: Record<string, unknown> | undefined): boolean {
   if (!fields) return false;
 
   const bookingFields = [
-    "firstName", "lastName", "dob", "bookingReason", "appointmentTypeId",
+    "firstName", "lastName", "dob", "gender", "bookingReason", "appointmentTypeId",
     "providerName", "patientPhone", "patientEmail", "datePreference", "timePreference", "slotDate", "slotTime", "fromDate", "toDate",
     "callerConfirmedBooking"
   ];

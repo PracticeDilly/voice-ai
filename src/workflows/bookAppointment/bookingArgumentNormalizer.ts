@@ -9,6 +9,7 @@ const bookingFieldNames = [
   "lastName",
   "dob",
   "bookingReason",
+  "gender",
   "appointmentTypeId",
   "providerName",
   "patientPhone",
