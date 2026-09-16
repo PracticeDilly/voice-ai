@@ -28,7 +28,6 @@ export interface ModelTurnResult {
 
 export interface ModelCallSummary {
   summaryText: string;
-  primaryIntent?: string;
   staffFollowupRequired?: boolean;
   priority?: string;
 }
@@ -210,7 +209,7 @@ export class ModelClient {
           content: [
             "You summarize dental/healthcare AI receptionist calls for office staff.",
             "Return only valid JSON.",
-            "The JSON shape is: {\"summaryText\": string, \"primaryIntent\": string, \"staffFollowupRequired\": boolean, \"priority\": \"LOW\"|\"NORMAL\"|\"HIGH\"}.",
+            "The JSON shape is: {\"summaryText\": string, \"staffFollowupRequired\": boolean, \"priority\": \"LOW\"|\"NORMAL\"|\"HIGH\"}.",
             "summaryText must be a short human-readable summary for office staff, usually 1 to 3 sentences.",
             "Do not invent patient data or appointment confirmations."
           ].join("\n")
@@ -358,7 +357,6 @@ export class ModelClient {
       return {
         ...parsed,
         summaryText,
-        primaryIntent: parsed.primaryIntent ?? session.currentIntent,
         staffFollowupRequired: parsed.staffFollowupRequired ?? false,
         priority: parsed.priority ?? "NORMAL"
       };
@@ -366,7 +364,6 @@ export class ModelClient {
       const summaryText = "AI receptionist call completed. Staff can review the transcript for details.";
       return {
         summaryText,
-        primaryIntent: session.currentIntent,
         staffFollowupRequired: true,
         priority: "NORMAL"
       };

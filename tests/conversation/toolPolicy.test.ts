@@ -353,6 +353,40 @@ test("does not retry the same identity value after a first-name mismatch", () =>
   assert.match(decision?.overrideResult?.reply ?? "", /spell your first name/i);
 });
 
+test("stops repeated DOB correction prompts and asks for a bounded next step", () => {
+  const call = session({
+    currentIntent: "BOOK_APPOINTMENT",
+    collectedFields: { firstName: "Mary", dob: "01/01/2001" },
+    pendingIdentityStatus: "NEEDS_DOB_CORRECTION",
+    workflowState: {
+      contractVersion: 1,
+      workflow: "PATIENT_VERIFICATION",
+      state: "FAILED",
+      allowedActions: ["VERIFY_PATIENT", "TRANSFER_TO_STAFF"],
+      failureReason: "DOB_NO_MATCH",
+      context: {
+        patientVerified: false,
+        canDisclosePatientData: false
+      }
+    }
+  });
+  call.pendingActions.VERIFY_PATIENT_IDENTITY!.value = "01/01/2001";
+  call.pendingActions.VERIFY_PATIENT_IDENTITY!.attempts = 2;
+
+  const decision = applyWorkflowTurnPolicies(call, {
+    intent: "BOOK_APPOINTMENT",
+    collectedFields: { dob: "01/01/2001" },
+    toolRequest: {
+      name: "VERIFY_PATIENT",
+      arguments: { dob: "01/01/2001" }
+    }
+  });
+
+  assert.equal(decision?.overrideResult?.toolRequest, undefined);
+  assert.match(decision?.overrideResult?.reply ?? "", /continue as a new patient or speak with office staff/i);
+  assert.equal(call.pendingActions.VERIFY_PATIENT_IDENTITY, undefined);
+});
+
 test("clears the new-patient candidate after booking completes", () => {
   const call = session({ currentIntent: "BOOK_APPOINTMENT" });
   call.newPatientBookingCandidate = true;

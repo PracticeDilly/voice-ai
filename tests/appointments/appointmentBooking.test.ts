@@ -446,6 +446,7 @@ test("blocks PMS execution until complete new-patient data is confirmed", () => 
     lastName: "Brown",
     dob: "11/11/1999",
     gender: "Female",
+    patientPhone: "9494846418",
     patientEmail: "madi.brown@example.com",
     appointmentTypeId: 13
   };
@@ -481,6 +482,7 @@ test("confirms new-patient fields once and reopens only a corrected field", () =
     lastName: "Brown",
     dob: "11/11/1999",
     gender: "Female",
+    patientPhone: "9494846418",
     patientEmail: "madi.brown@example.com"
   };
 

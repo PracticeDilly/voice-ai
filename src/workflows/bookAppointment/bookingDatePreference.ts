@@ -25,12 +25,15 @@ export function normalizeBookingDatePreference(
   }
 
   const today = localDateParts(timezone, nowIso);
-  const normalized = trimmed.toLowerCase();
+  const normalized = trimmed.toLowerCase().replace(/\s+/g, " ");
   if (normalized === "today") {
     return formatDate(today);
   }
   if (normalized === "tomorrow") {
     return formatDate(addDays(today, 1));
+  }
+  if (normalized === "day after tomorrow" || normalized === "the day after tomorrow" || normalized === "in two days") {
+    return formatDate(addDays(today, 2));
   }
 
   const weekday = weekdayIndex(normalized);

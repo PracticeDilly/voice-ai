@@ -16,7 +16,6 @@ export interface ToolResult {
 
 export interface CallSummary {
   summaryText: string;
-  primaryIntent?: string;
   staffFollowupRequired?: boolean;
   priority?: string;
 }
@@ -57,7 +56,6 @@ export class SpringBootClient {
         lastToolResults: input.lastToolResults,
         workflowState: input.workflowState,
         summaryText: input.summary?.summaryText,
-        primaryIntent: input.summary?.primaryIntent,
         staffFollowupRequired: input.summary?.staffFollowupRequired,
         priority: input.summary?.priority
       })

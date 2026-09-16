@@ -274,10 +274,6 @@ function correctionQuestion(field: NewPatientConfirmationField): string {
 }
 
 function fieldValue(session: CallSession, field: NewPatientConfirmationField): string | undefined {
-  if (field === "patientPhone") {
-    return textValue(session.collectedFields.patientPhone) ?? textValue(session.fromNumber);
-  }
-
   return textValue(session.collectedFields[field]);
 }
 

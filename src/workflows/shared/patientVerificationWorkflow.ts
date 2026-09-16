@@ -14,6 +14,7 @@ const patientSpecificTools = new Set([
 ]);
 
 const verificationToolName = "VERIFY_PATIENT";
+const maxIdentityVerificationAttempts = 2;
 
 const patientVerificationToolAdapter: WorkflowToolAdapter = {
   supports(tool: ToolRequest): boolean {
@@ -270,6 +271,13 @@ function retryIdentityCorrection(session: CallSession, result: ModelTurnResult):
 
   const correctedField = pendingCorrection.status === "NEEDS_NAME_SPELLING" ? "firstName" : "dob";
   const correctedValue = textValue(result.collectedFields?.[correctedField]);
+  const attempts = pendingCorrection.attempts ?? 1;
+
+  if (attempts >= maxIdentityVerificationAttempts
+    || (correctedValue && sameIdentityValue(correctedValue, pendingCorrection.value))) {
+    return identityCorrectionLimitDecision(session, result);
+  }
+
   if (correctedValue && !sameIdentityValue(correctedValue, pendingCorrection.value)) {
     return {
       overrideResult: {
@@ -299,18 +307,37 @@ function retryIdentityCorrection(session: CallSession, result: ModelTurnResult):
   };
 }
 
+function identityCorrectionLimitDecision(session: CallSession, result: ModelTurnResult): ToolPolicyDecision {
+  delete session.pendingActions.VERIFY_PATIENT_IDENTITY;
+  return {
+    overrideResult: {
+      ...result,
+      intent: session.currentIntent ?? result.intent,
+      reply: "I still couldn't match those details to a patient record. Would you like to continue as a new patient or speak with office staff?",
+      callerAction: undefined,
+      toolRequest: undefined,
+      shouldEndCall: false
+    },
+    instruction: "Do not ask for the same date of birth or first name again. For a booking, wait for explicit authorization to continue as a new patient or an explicit request to speak with office staff."
+  };
+}
+
 function rememberIdentityCorrection(session: CallSession): void {
   const reason = session.workflowState?.failureReason;
   if (reason === "FIRST_NAME_NO_MATCH") {
+    const previous = session.pendingActions.VERIFY_PATIENT_IDENTITY;
     session.pendingActions.VERIFY_PATIENT_IDENTITY = {
       status: "NEEDS_NAME_SPELLING",
       value: textValue(session.collectedFields.firstName),
+      attempts: previous?.status === "NEEDS_NAME_SPELLING" ? (previous.attempts ?? 0) + 1 : 1,
       createdAt: new Date().toISOString()
     };
   } else if (reason === "DOB_NO_MATCH") {
+    const previous = session.pendingActions.VERIFY_PATIENT_IDENTITY;
     session.pendingActions.VERIFY_PATIENT_IDENTITY = {
       status: "NEEDS_DOB_CORRECTION",
       value: textValue(session.collectedFields.dob ?? session.collectedFields.dateOfBirth),
+      attempts: previous?.status === "NEEDS_DOB_CORRECTION" ? (previous.attempts ?? 0) + 1 : 1,
       createdAt: new Date().toISOString()
     };
   }
