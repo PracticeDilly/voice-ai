@@ -48,10 +48,13 @@ export class BookAppointmentToolAdapter implements WorkflowToolAdapter {
     }
     const appointmentTypeId = tool.arguments?.appointmentTypeId;
     const patientType = bookingPatientType(session);
-    if (isNewPatientBooking(session)
-      && hasAllNewPatientData(session)
-      && !allNewPatientDataConfirmed(session)) {
-      return "BOOK_APPOINTMENT requires explicit confirmation of all new-patient data before execution.";
+    if (isNewPatientBooking(session)) {
+      if (!hasAllNewPatientData(session)) {
+        return "BOOK_APPOINTMENT requires all new-patient details before execution. Ask only for the missing detail.";
+      }
+      if (!allNewPatientDataConfirmed(session)) {
+        return "BOOK_APPOINTMENT requires explicit confirmation of all new-patient data before execution.";
+      }
     }
     if (session.officeContext && !isEligibleAppointmentTypeId(session, appointmentTypeId)) {
       return `BOOK_APPOINTMENT requires a numeric ${patientType} appointmentTypeId that exists in office context; resolve it from bookingReason before execution.`;

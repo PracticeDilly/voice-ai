@@ -15,7 +15,11 @@ import { ModelClient, ModelTurnResult } from "./modelClient.js";
 import { BookingWorkflowError } from "../workflows/bookAppointment/bookingModelContract.js";
 import { prepareBookingFollowup } from "../workflows/bookAppointment/bookingFollowup.js";
 import { bookingReason, isEligibleAppointmentTypeId } from "../workflows/bookAppointment/appointmentTypeSelection.js";
-import { callerActionRequestsStaffTransfer } from "../workflows/shared/callerActionDecision.js";
+import {
+  callerActionRequestsStaffTransfer,
+  callerExplicitlyEndsCall,
+  callerTextExplicitlyContinuesAsNewPatient
+} from "../workflows/shared/callerActionDecision.js";
 import { correctBookingWeekdayMentions } from "../workflows/bookAppointment/bookingDatePreference.js";
 import { synchronizeNewPatientDataConfirmation } from "../workflows/bookAppointment/newPatientDataConfirmation.js";
 
@@ -95,7 +99,18 @@ export class AiReceptionistOrchestrator {
     }
 
     const firstModelStartedAt = Date.now();
-    const firstResult = await this.modelClient.nextTurn(session, callerText);
+    if (callerExplicitlyEndsCall(callerText)) {
+      const reply = "Understood. I will end the call now. Thank you for calling.";
+      return {
+        reply,
+        assistantMetadata: { intent: "GOODBYE", source: "deterministic-caller-end" },
+        shouldEndSession: true,
+        shouldTransferToStaff: false
+      };
+    }
+
+    let firstResult = await this.modelClient.nextTurn(session, callerText);
+    firstResult = this.applyDeterministicCallerAuthorization(session, callerText, firstResult);
     const firstModelDurationMs = Date.now() - firstModelStartedAt;
     logger.info("AI first model result received", {
       callSid: session.callSid,
@@ -111,13 +126,13 @@ export class AiReceptionistOrchestrator {
     if (firstResult.intent) {
       session.currentIntent = firstResult.intent;
     }
-    synchronizeNewPatientDataConfirmation(session, firstResult, callerText);
     if (firstResult.collectedFields) {
       session.collectedFields = {
         ...session.collectedFields,
         ...firstResult.collectedFields
       };
     }
+    synchronizeNewPatientDataConfirmation(session, firstResult, callerText);
     hydrateConfirmAppointmentSelections(session);
     promoteConfirmAppointmentPendingAction(session, firstResult);
 
@@ -147,13 +162,13 @@ export class AiReceptionistOrchestrator {
     if (finalResult.intent) {
       session.currentIntent = finalResult.intent;
     }
-    synchronizeNewPatientDataConfirmation(session, finalResult);
     if (finalResult.collectedFields) {
       session.collectedFields = {
         ...session.collectedFields,
         ...finalResult.collectedFields
       };
     }
+    synchronizeNewPatientDataConfirmation(session, finalResult);
 
     return {
       reply,
@@ -514,13 +529,13 @@ export class AiReceptionistOrchestrator {
     if (repromptResult.intent) {
       session.currentIntent = repromptResult.intent;
     }
-    synchronizeNewPatientDataConfirmation(session, repromptResult);
     if (repromptResult.collectedFields) {
       session.collectedFields = {
         ...session.collectedFields,
         ...repromptResult.collectedFields
       };
     }
+    synchronizeNewPatientDataConfirmation(session, repromptResult);
 
     hydrateConfirmAppointmentSelections(session);
     promoteConfirmAppointmentPendingAction(session, repromptResult);
@@ -549,6 +564,42 @@ export class AiReceptionistOrchestrator {
     const verificationBoundary = session.workflowState?.workflow === "PATIENT_VERIFICATION"
       && ["FAILED", "HANDOFF_REQUIRED", "NEEDS_NEW_PATIENT_CONFIRMATION"].includes(session.workflowState.state);
     return !verificationBoundary || callerActionRequestsStaffTransfer(firstResult);
+  }
+
+  private applyDeterministicCallerAuthorization(
+    session: CallSession,
+    callerText: string,
+    result: ModelTurnResult
+  ): ModelTurnResult {
+    if (result.callerAction?.authorization?.stateChangingAction === "CONTINUE_AS_NEW_PATIENT") {
+      return result;
+    }
+
+    const previousAssistantText = [...session.transcript]
+      .reverse()
+      .find((turn) => turn.speaker === "assistant")?.text;
+    if (!callerTextExplicitlyContinuesAsNewPatient(callerText, previousAssistantText)) {
+      return result;
+    }
+
+    logger.info("Applied deterministic new-patient authorization from caller speech", {
+      callSid: session.callSid,
+      officeCode: session.officeCode,
+      callerText
+    });
+    return {
+      ...result,
+      intent: "BOOK_APPOINTMENT",
+      callerAction: {
+        speechAct: "AUTHORIZATION",
+        workflowIntent: "BOOK_APPOINTMENT",
+        requestedAction: "BOOK_APPOINTMENT",
+        authorization: {
+          stateChangingAction: "CONTINUE_AS_NEW_PATIENT",
+          isExplicit: true
+        }
+      }
+    };
   }
 
   private correctBookingReply(reply: string, session: CallSession): string {

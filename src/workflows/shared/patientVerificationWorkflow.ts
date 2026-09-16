@@ -6,6 +6,7 @@ import {
   callerActionRequestsStaffTransfer
 } from "./callerActionDecision.js";
 import { ConversationWorkflow, ToolPolicyDecision, WorkflowToolAdapter } from "./workflowTypes.js";
+import { newPatientConfirmationFields } from "../bookAppointment/newPatientDataConfirmation.js";
 
 const patientSpecificTools = new Set([
   "GET_NEXT_APPOINTMENT",
@@ -361,38 +362,31 @@ function continueAsNewPatientBooking(session: CallSession, result: ModelTurnResu
   delete session.pendingActions.VERIFY_PATIENT_IDENTITY;
   session.newPatientBookingCandidate = true;
   session.newPatientDataConfirmation = { confirmed: {} };
+  session.workflowState = {
+    contractVersion: session.workflowState?.contractVersion ?? 1,
+    workflow: "BOOK_APPOINTMENT",
+    state: "NEEDS_NEW_PATIENT_DATA",
+    requiredField: newPatientConfirmationFields.find((field) => (
+      !textValue(session.collectedFields[field])
+      && !(field === "patientPhone" && textValue(session.fromNumber))
+    )) ?? null,
+    allowedActions: ["BOOK_APPOINTMENT"],
+    context: {
+      ...(session.workflowState?.context ?? {}),
+      patientType: "NEW_PATIENT",
+      patientVerified: false,
+      canDisclosePatientData: false
+    },
+    failureReason: null
+  };
   ensurePendingBooking(session, result);
 
-  const pending = session.pendingPatientWorkflow;
-  if (!pending) {
-    return {
-      overrideResult: {
-        ...result,
-        intent: "BOOK_APPOINTMENT",
-        toolRequest: {
-          name: "BOOK_APPOINTMENT",
-          arguments: {
-            ...session.collectedFields,
-            continueAsNewPatient: true
-          }
-        }
-      }
-    };
-  }
-
-  delete session.pendingPatientWorkflow;
   return {
     overrideResult: {
       ...result,
       intent: "BOOK_APPOINTMENT",
-      toolRequest: {
-        name: "BOOK_APPOINTMENT",
-        arguments: {
-          ...pending.arguments,
-          ...session.collectedFields,
-          continueAsNewPatient: true
-        }
-      }
+      toolRequest: undefined,
+      shouldEndCall: false
     }
   };
 }

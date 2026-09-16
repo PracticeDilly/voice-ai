@@ -133,6 +133,51 @@ test("does not transfer when identity policy suppresses an inferred transfer", a
   assert.match(outcome.reply, /spell your first name/i);
 });
 
+test("uses caller speech to leave failed verification and enter new-patient booking", async () => {
+  const sessions = new CallSessionStore();
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  const session = sessions.create({ callSid: "CA-new-patient-consent", officeCode: "TEST", fromNumber: "+15551234567" });
+  session.currentIntent = "BOOK_APPOINTMENT";
+  session.collectedFields = { firstName: "Mary", dob: "01/01/2001", bookingReason: "Cleaning" };
+  session.workflowState = {
+    contractVersion: 1,
+    workflow: "PATIENT_VERIFICATION",
+    state: "FAILED",
+    allowedActions: ["VERIFY_PATIENT", "TRANSFER_TO_STAFF"],
+    failureReason: "DOB_NO_MATCH",
+    context: { patientVerified: false, canDisclosePatientData: false }
+  };
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      return { intent: "BOOK_APPOINTMENT", collectedFields: { bookingReason: "Cleaning" }, reply: "Okay." };
+    }
+  } });
+
+  const outcome = await orchestrator.handleCallerText(session, "Yeah. I'll continue as a new patient.", { recordCallerTurn: false });
+
+  assert.equal(outcome.shouldTransferToStaff, false);
+  assert.equal(session.newPatientBookingCandidate, true);
+  assert.equal(session.workflowState?.workflow, "BOOK_APPOINTMENT");
+  assert.equal(session.workflowState?.state, "NEEDS_NEW_PATIENT_DATA");
+});
+
+test("ends the call deterministically when the caller asks to drop it", async () => {
+  const sessions = new CallSessionStore();
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  const session = sessions.create({ callSid: "CA-end-call", officeCode: "TEST" });
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      throw new Error("the model must not be called for an explicit end-call request");
+    }
+  } });
+
+  const outcome = await orchestrator.handleCallerText(session, "Please drop the call.", { recordCallerTurn: false });
+
+  assert.equal(outcome.shouldEndSession, true);
+  assert.equal(outcome.shouldTransferToStaff, false);
+  assert.match(outcome.reply, /end the call/i);
+});
+
 test("returns a response when patient verification tools recurse repeatedly", async () => {
   const sessions = new CallSessionStore();
   const orchestrator = new AiReceptionistOrchestrator(sessions);

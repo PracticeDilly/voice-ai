@@ -49,6 +49,12 @@ export function normalizeBookingArguments(
   );
   applySingleOfficeContextProvider(normalized, session);
 
+  // The model may refer to the caller's phone as the placeholder "fromNumber".
+  // Resolve that reference to the actual session value before the PMS request.
+  if (!hasValue(normalized.patientPhone)) {
+    copyKnownValue(normalized, "patientPhone", session.fromNumber);
+  }
+
   copyKnownValue(normalized, "fromNumber", normalized.fromNumber ?? session.fromNumber);
 
   const datePreference = normalizeBookingDatePreference(

@@ -66,6 +66,36 @@ export function callerActionExplicitlyAuthorizesNewPatient(result?: ModelTurnRes
     && result.callerAction.authorization.isExplicit === true;
 }
 
+export function callerTextExplicitlyContinuesAsNewPatient(
+  callerText: string,
+  previousAssistantText?: string
+): boolean {
+  const normalized = callerText.trim().toLocaleLowerCase();
+  if (!normalized || /\b(?:don't|do not|not|never)\b.{0,24}\bnew patient\b/.test(normalized)) {
+    return false;
+  }
+
+  const explicitNewPatientChoice = /\b(?:continue|proceed|book|schedule|register|create|come|visit)\b.{0,36}\b(?:as )?a new patient\b/.test(normalized)
+    || /\bnew patient\b.{0,36}\b(?:continue|proceed|book|schedule|register|create|come|visit)\b/.test(normalized);
+  if (explicitNewPatientChoice) {
+    return true;
+  }
+
+  return /^(?:yes|yeah|yep|sure|okay|ok|correct|that's fine|that works)[\s,.!?]*$/i.test(callerText.trim())
+    && /\b(?:continue as a new patient|new patient or speak with office staff|new patient)\b/i.test(previousAssistantText ?? "");
+}
+
+export function callerExplicitlyEndsCall(callerText: string): boolean {
+  const normalized = callerText.trim().toLocaleLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return /\b(?:drop|end|hang up|disconnect|terminate|close)\b.{0,24}\b(?:the )?(?:call|conversation|phone)\b/.test(normalized)
+    || /\b(?:call|conversation)\b.{0,24}\b(?:over|ended|finished)\b/.test(normalized)
+    || /^(?:goodbye|bye|that's all|that is all)[\s,.!?]*$/i.test(callerText.trim());
+}
+
 export function callerActionIsConfirmationQuestion(result: ModelTurnResult): boolean {
   return result.callerAction?.speechAct === "QUESTION"
     && (

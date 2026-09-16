@@ -23,7 +23,8 @@ test("builds a compact workflow-oriented prompt", () => {
   assert.match(prompt, /patientEmail before proceeding with booking/i);
   assert.match(prompt, /confirm its spelling once/i);
   assert.match(prompt, /spell both the first and last names/i);
-  assert.match(prompt, /always ask the caller to provide the patient's phone number/i);
+  assert.match(prompt, /actual caller number from session\.fromNumber as patientPhone/i);
+  assert.match(prompt, /never send the literal text fromNumber as patientPhone/i);
   assert.match(prompt, /read it back for confirmation only once/i);
   assert.match(prompt, /day after tomorrow.*exactly two calendar days/i);
   assert.match(prompt, /fromDate\/toDate/i);

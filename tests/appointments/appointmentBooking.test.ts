@@ -37,9 +37,10 @@ test("prepares booking request with caller number and collected conversational f
   assert.equal(prepared.arguments.datePreference, "09/04/2026");
   assert.equal(prepared.arguments.timePreference, "morning");
   assert.equal(prepared.arguments.fromNumber, "+15551234567");
+  assert.equal(prepared.arguments.patientPhone, "+15551234567");
 });
 
-test("does not preserve a model placeholder as the patient phone", () => {
+test("resolves a model phone placeholder to the actual caller number", () => {
   const callSession = session();
   callSession.fromNumber = "+15551234567";
 
@@ -50,7 +51,7 @@ test("does not preserve a model placeholder as the patient phone", () => {
     }
   });
 
-  assert.equal(prepared.arguments.patientPhone, undefined);
+  assert.equal(prepared.arguments.patientPhone, "+15551234567");
   assert.equal(prepared.arguments.fromNumber, "+15551234567");
 });
 
