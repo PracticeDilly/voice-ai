@@ -5,6 +5,7 @@ import { BookAppointmentToolAdapter } from "../../src/workflows/bookAppointment/
 import { correctBookingWeekdayMentions } from "../../src/workflows/bookAppointment/bookingDatePreference.js";
 import {
   allNewPatientDataConfirmed,
+  constrainNewPatientDataUpdates,
   markNewPatientSummaryPrompt,
   newPatientConfirmationFields,
   pendingNewPatientConfirmation,
@@ -509,6 +510,50 @@ test("confirms new-patient fields once and reopens only a corrected field", () =
   });
   assert.equal(pendingNewPatientConfirmation(callSession), "patientEmail");
   assert.equal(callSession.newPatientDataConfirmation?.confirmed.firstName, "Madi");
+});
+
+test("merges only the active new-patient field", () => {
+  const callSession = session();
+  callSession.newPatientBookingCandidate = true;
+  callSession.collectedFields = {
+    firstName: "Stacy",
+    lastName: "Jones",
+    patientEmail: "old@example.com"
+  };
+  callSession.newPatientDataConfirmation = {
+    confirmed: {
+      firstName: "Stacy",
+      lastName: "Jones"
+    },
+    prompted: {
+      field: "patientEmail",
+      value: "old@example.com",
+      kind: "CONFIRM"
+    }
+  };
+
+  const result = {
+    updatedFields: ["patientEmail", "lastName"],
+    collectedFields: {
+      lastName: "K A U R",
+      patientEmail: "sukhjotkaur2411@gmail.com"
+    }
+  };
+  constrainNewPatientDataUpdates(callSession, result);
+  callSession.collectedFields = {
+    ...callSession.collectedFields,
+    ...result.collectedFields
+  };
+  synchronizeNewPatientDataConfirmation(
+    callSession,
+    result,
+    "I am telling you my email, which is sukhjotkaur2411@gmail.com."
+  );
+
+  assert.deepEqual(result.updatedFields, ["patientEmail"]);
+  assert.equal(result.collectedFields.lastName, undefined);
+  assert.equal(callSession.collectedFields.lastName, "Jones");
+  assert.equal(callSession.newPatientDataConfirmation?.confirmed.lastName, "Jones");
 });
 
 test("spells the captured email back for one confirmation", () => {

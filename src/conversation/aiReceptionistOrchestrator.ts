@@ -21,7 +21,10 @@ import {
   callerTextExplicitlyContinuesAsNewPatient
 } from "../workflows/shared/callerActionDecision.js";
 import { correctBookingWeekdayMentions } from "../workflows/bookAppointment/bookingDatePreference.js";
-import { synchronizeNewPatientDataConfirmation } from "../workflows/bookAppointment/newPatientDataConfirmation.js";
+import {
+  constrainNewPatientDataUpdates,
+  synchronizeNewPatientDataConfirmation
+} from "../workflows/bookAppointment/newPatientDataConfirmation.js";
 
 const MAX_PATIENT_VERIFICATION_TOOL_CHAIN_DEPTH = 3;
 const COMPLETE_CALL_MAX_ATTEMPTS = 3;
@@ -126,6 +129,7 @@ export class AiReceptionistOrchestrator {
     if (firstResult.intent) {
       session.currentIntent = firstResult.intent;
     }
+    constrainNewPatientDataUpdates(session, firstResult);
     if (firstResult.collectedFields) {
       session.collectedFields = {
         ...session.collectedFields,
@@ -162,6 +166,7 @@ export class AiReceptionistOrchestrator {
     if (finalResult.intent) {
       session.currentIntent = finalResult.intent;
     }
+    constrainNewPatientDataUpdates(session, finalResult);
     if (finalResult.collectedFields) {
       session.collectedFields = {
         ...session.collectedFields,
@@ -223,6 +228,7 @@ export class AiReceptionistOrchestrator {
     bookingFollowups = 0,
     toolChainDepth = 0
   ): Promise<ModelTurnResult> {
+    constrainNewPatientDataUpdates(session, result);
     if (!result.toolRequest) {
       return result;
     }
@@ -360,6 +366,7 @@ export class AiReceptionistOrchestrator {
       if (correctedResult.toolRequest?.name === "BOOK_APPOINTMENT"
         && isEligibleAppointmentTypeId(session, correctedResult.toolRequest.arguments.appointmentTypeId)) {
         result = prepareBookingFollowup(session, correctedResult, followups);
+        constrainNewPatientDataUpdates(session, result);
         if (result.collectedFields) {
           session.collectedFields = { ...session.collectedFields, ...result.collectedFields };
         }
@@ -386,6 +393,7 @@ export class AiReceptionistOrchestrator {
     }
 
     result = prepareBookingFollowup(session, result, followups);
+    constrainNewPatientDataUpdates(session, result);
     if (result.collectedFields) {
       session.collectedFields = { ...session.collectedFields, ...result.collectedFields };
     }
@@ -529,6 +537,7 @@ export class AiReceptionistOrchestrator {
     if (repromptResult.intent) {
       session.currentIntent = repromptResult.intent;
     }
+    constrainNewPatientDataUpdates(session, repromptResult);
     if (repromptResult.collectedFields) {
       session.collectedFields = {
         ...session.collectedFields,

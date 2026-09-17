@@ -138,6 +138,52 @@ export function synchronizeNewPatientDataConfirmation(
   session.newPatientDataConfirmation = state;
 }
 
+export function constrainNewPatientDataUpdates(session: CallSession, result: ModelTurnResult): void {
+  if (!isNewPatientBooking(session)) {
+    return;
+  }
+
+  const state = session.newPatientDataConfirmation ?? { confirmed: {} };
+  const activeField = state.prompted?.field
+    ?? state.awaitingCorrectionField
+    ?? pendingNewPatientConfirmation(session);
+  const modelFields = new Set([
+    ...Object.keys(result.collectedFields ?? {}),
+    ...Object.keys(result.toolRequest?.arguments ?? {})
+  ]);
+  const declaredFields = Array.isArray(result.updatedFields)
+    ? result.updatedFields
+    : [...modelFields];
+  const allowedFields = activeField
+    ? new Set([activeField])
+    : new Set(declaredFields);
+  const acceptedFields = declaredFields.filter((field) => allowedFields.has(field));
+
+  result.updatedFields = acceptedFields;
+  if (result.collectedFields) {
+    for (const field of newPatientConfirmationFields) {
+      if (!allowedFields.has(field)) {
+        delete result.collectedFields[field];
+      }
+    }
+  }
+
+  if (result.toolRequest?.arguments && activeField) {
+    for (const field of newPatientConfirmationFields) {
+      if (field === activeField) {
+        continue;
+      }
+
+      const knownValue = session.collectedFields[field];
+      if (knownValue !== undefined && knownValue !== null && knownValue !== "") {
+        result.toolRequest.arguments[field] = knownValue;
+      } else {
+        delete result.toolRequest.arguments[field];
+      }
+    }
+  }
+}
+
 export function hasAllNewPatientData(session: CallSession): boolean {
   if (!isNewPatientBooking(session)) {
     return false;

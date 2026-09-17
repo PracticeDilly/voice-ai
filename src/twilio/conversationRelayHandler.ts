@@ -197,9 +197,11 @@ export class ConversationRelayHandler {
             voicePromptLength: message.voicePrompt?.length ?? 0
           });
           const callerText = message.voicePrompt?.trim();
+          // Any prompt activity means the caller is engaged, even when the
+          // partial transcript is empty or too short to process as a turn.
+          latestObservedInputVersion += 1;
+          noInputTimer = this.clearTimer(noInputTimer);
           if (callerText) {
-            latestObservedInputVersion += 1;
-            noInputTimer = this.clearTimer(noInputTimer);
             noInputCount = 0;
           }
 

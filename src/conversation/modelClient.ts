@@ -22,6 +22,7 @@ export interface ModelTurnResult {
   intent?: string;
   callerAction?: CallerActionDecision;
   collectedFields?: Record<string, unknown>;
+  updatedFields?: string[];
   confirmedFields?: string[];
   shouldEndCall?: boolean;
 }
