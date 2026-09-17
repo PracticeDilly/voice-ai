@@ -1,3 +1,5 @@
+import { officeTimezoneForDate } from "../../time/officeTimezone.js";
+
 const defaultTimezone = "America/Los_Angeles";
 const weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const monthNames = [
@@ -146,7 +148,7 @@ function parseNormalizedDate(value: unknown): Date | undefined {
 
 function localDateParts(timezone: string | undefined, nowIso: string): DateParts {
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone ?? defaultTimezone,
+    timeZone: officeTimezoneForDate(timezone, defaultTimezone),
     year: "numeric",
     month: "2-digit",
     day: "2-digit"

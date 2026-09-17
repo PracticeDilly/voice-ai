@@ -43,9 +43,7 @@ export function normalizeBookingArguments(
     normalized,
     "dob",
     toolArguments?.dob
-      ?? toolArguments?.dateOfBirth
       ?? session.collectedFields.dob
-      ?? session.collectedFields.dateOfBirth
   );
   applySingleOfficeContextProvider(normalized, session);
 

@@ -23,7 +23,7 @@ test("canonicalizes supported next-appointment lookup fields and ignores last na
     arguments: {
       firstName: "  Kim  ",
       lastName: " Miller ",
-      dateOfBirth: " 10/18/1999 ",
+      dob: " 10/18/1999 ",
       fromNumber: " +17030175781 "
     }
   });

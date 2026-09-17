@@ -13,7 +13,7 @@ test("builds a compact workflow-oriented prompt", () => {
   assert.doesNotMatch(prompt, /CREATE_HANDOFF_REQUEST/);
   assert.doesNotMatch(prompt, /GETevant|reldo/);
   assert.match(prompt, /"requiredArguments":\["firstName","dob","bookingReason","appointmentTypeId"\]/);
-  assert.match(prompt, /Store DOB as dob, never dateOfBirth/);
+  assert.match(prompt, /use exact fields.*dob/i);
   assert.match(prompt, /without asking whether the caller is new/i);
   assert.match(prompt, /do not ask for or require last name/i);
   assert.match(prompt, /resolve the closest eligible appointment type/i);

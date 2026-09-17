@@ -240,7 +240,6 @@ export class ModelClient {
   private parseModelResult(content: string): ModelTurnResult {
     try {
       const parsed = JSON.parse(content) as ModelTurnResult;
-      canonicalizeCollectedFields(parsed);
       if (!parsed.toolRequest?.name?.trim()) {
         delete parsed.toolRequest;
       }
@@ -369,14 +368,4 @@ export class ModelClient {
       };
     }
   }
-}
-
-function canonicalizeCollectedFields(result: ModelTurnResult): void {
-  const fields = result.collectedFields;
-  if (!fields || fields.dob !== undefined || fields.dateOfBirth === undefined) {
-    return;
-  }
-
-  fields.dob = fields.dateOfBirth;
-  delete fields.dateOfBirth;
 }

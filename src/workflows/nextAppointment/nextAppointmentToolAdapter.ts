@@ -14,10 +14,7 @@ export class NextAppointmentToolAdapter implements WorkflowToolAdapter {
 
     const argumentsRecord = tool.arguments ?? {};
     const firstName = canonicalText(argumentsRecord.firstName) ?? canonicalText(session.collectedFields.firstName);
-    const dob = canonicalText(argumentsRecord.dob)
-      ?? canonicalText(argumentsRecord.dateOfBirth)
-      ?? canonicalText(session.collectedFields.dob)
-      ?? canonicalText(session.collectedFields.dateOfBirth);
+    const dob = canonicalText(argumentsRecord.dob) ?? canonicalText(session.collectedFields.dob);
     const fromNumber = canonicalText(argumentsRecord.fromNumber) ?? canonicalText(session.fromNumber);
 
     return {

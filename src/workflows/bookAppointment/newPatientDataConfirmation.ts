@@ -248,9 +248,7 @@ export function newPatientConfirmationQuestion(
     case "gender":
       return `I have the patient's gender recorded as ${value}. Is that correct?`;
     case "patientEmail":
-      return session.newPatientDataConfirmation?.prompted?.kind === "CONFIRM"
-        ? `I have the patient's email as ${value}. Is that correct?`
-        : `I have the patient's email as ${value}. Could you please spell it out?`;
+      return `Let me spell back the patient's email: ${spellEmailForSpeech(value)}. Is that correct?`;
     case "patientPhone":
       return `I have the patient's phone number as ${value}. Is that correct?`;
   }
@@ -311,7 +309,30 @@ function isNegative(value: string): boolean {
 }
 
 function requiresSpelling(field: NewPatientConfirmationField): boolean {
-  return field === "firstName" || field === "lastName" || field === "patientEmail";
+  return field === "firstName" || field === "lastName";
+}
+
+function spellEmailForSpeech(value: string): string {
+  return Array.from(value.trim().toLocaleLowerCase())
+    .map((character) => {
+      switch (character) {
+        case "@":
+          return " at ";
+        case ".":
+          return " dot ";
+        case "+":
+          return " plus ";
+        case "_":
+          return " underscore ";
+        case "-":
+          return " dash ";
+        default:
+          return `${character} `;
+      }
+    })
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function isLikelyFieldRestatement(field: NewPatientConfirmationField, value: string): boolean {

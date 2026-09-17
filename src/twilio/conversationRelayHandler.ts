@@ -29,6 +29,7 @@ interface PromptProcessingContext {
   setNoInputTimer: (timer: ReturnType<typeof setTimeout> | undefined) => void;
   getNoInputCount: () => number;
   setNoInputCount: (value: number) => void;
+  getAssistantBusy: () => boolean;
   setEndingSession: (value: boolean) => void;
 }
 
@@ -86,6 +87,7 @@ export class ConversationRelayHandler {
             setNoInputCount: (value) => {
               noInputCount = value;
             },
+            getAssistantBusy: () => processingPrompt,
             setEndingSession: (value) => {
               endingSession = value;
             }
@@ -144,7 +146,8 @@ export class ConversationRelayHandler {
                 noInputTimer = timer;
               },
               latestObservedInputVersion,
-              () => latestObservedInputVersion
+              () => latestObservedInputVersion,
+              () => processingPrompt
             );
           } else {
             noInputTimer = this.resetNoInputTimer(
@@ -160,7 +163,8 @@ export class ConversationRelayHandler {
                 noInputTimer = timer;
               },
               latestObservedInputVersion,
-              () => latestObservedInputVersion
+              () => latestObservedInputVersion,
+              () => processingPrompt
             );
           }
           return;
@@ -433,7 +437,8 @@ export class ConversationRelayHandler {
       context.setNoInputCount,
       context.setNoInputTimer,
       context.expectedObservedInputVersion,
-      context.getLatestObservedInputVersion
+      context.getLatestObservedInputVersion,
+      context.getAssistantBusy
     ));
 
     return {
@@ -550,7 +555,8 @@ export class ConversationRelayHandler {
     setNoInputCount: (value: number) => void,
     setNoInputTimer: (timer: ReturnType<typeof setTimeout> | undefined) => void,
     expectedInputVersion: number,
-    getLatestInputVersion: () => number
+    getLatestInputVersion: () => number,
+    getAssistantBusy: () => boolean = () => false
   ): ReturnType<typeof setTimeout> {
     this.clearTimer(existingTimer);
     const delayMs = this.estimatedSpeechDurationMs(assistantText) + config.AI_NO_INPUT_TIMEOUT_MS;
@@ -569,7 +575,8 @@ export class ConversationRelayHandler {
         setNoInputCount,
         setNoInputTimer,
         expectedInputVersion,
-        getLatestInputVersion
+        getLatestInputVersion,
+        getAssistantBusy
       );
     }, delayMs);
   }
@@ -581,7 +588,8 @@ export class ConversationRelayHandler {
     setNoInputCount: (value: number) => void,
     setNoInputTimer: (timer: ReturnType<typeof setTimeout> | undefined) => void,
     expectedInputVersion: number,
-    getLatestInputVersion: () => number
+    getLatestInputVersion: () => number,
+    getAssistantBusy: () => boolean = () => false
   ): Promise<void> {
     const isCurrent = (): boolean => ws.readyState === WebSocket.OPEN
       && expectedInputVersion === getLatestInputVersion();
@@ -592,6 +600,26 @@ export class ConversationRelayHandler {
         expectedInputVersion,
         latestInputVersion: getLatestInputVersion()
       });
+      return;
+    }
+
+    if (getAssistantBusy()) {
+      logger.info("Deferring no-input timeout while assistant is processing", {
+        callSid: session.callSid,
+        noInputCount
+      });
+      setNoInputTimer(setTimeout(() => {
+        void this.handleNoInputTimeout(
+          session,
+          ws,
+          noInputCount,
+          setNoInputCount,
+          setNoInputTimer,
+          expectedInputVersion,
+          getLatestInputVersion,
+          getAssistantBusy
+        );
+      }, 500));
       return;
     }
 

@@ -47,7 +47,7 @@ export function hasMeaningfulCollectedField(
   fieldName: string
 ): boolean {
   if (fieldName === "dob") {
-    return !!meaningfulString(fields.dob) || !!meaningfulString(fields.dateOfBirth);
+    return !!meaningfulString(fields.dob);
   }
 
   return !!meaningfulString(fields[fieldName]);

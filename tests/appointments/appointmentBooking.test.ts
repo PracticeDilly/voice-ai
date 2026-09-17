@@ -9,6 +9,7 @@ import {
   newPatientConfirmationFields,
   pendingNewPatientConfirmation,
   markNewPatientConfirmationPrompt,
+  newPatientConfirmationQuestion,
   synchronizeNewPatientDataConfirmation
 } from "../../src/workflows/bookAppointment/newPatientDataConfirmation.js";
 
@@ -205,9 +206,9 @@ test("resolves next-week weekday to the next upcoming calendar date", () => {
   assert.equal(prepared.arguments.toDate, "09/15/2026");
 });
 
-test("preserves a DOB held under the legacy collected-field alias", () => {
+test("preserves a DOB held under the canonical collected-field name", () => {
   const callSession = session();
-  callSession.collectedFields.dateOfBirth = "11/26/2003";
+  callSession.collectedFields.dob = "11/26/2003";
 
   const prepared = new BookAppointmentToolAdapter().prepareTool(callSession, {
     name: "BOOK_APPOINTMENT",
@@ -508,6 +509,21 @@ test("confirms new-patient fields once and reopens only a corrected field", () =
   });
   assert.equal(pendingNewPatientConfirmation(callSession), "patientEmail");
   assert.equal(callSession.newPatientDataConfirmation?.confirmed.firstName, "Madi");
+});
+
+test("spells the captured email back for one confirmation", () => {
+  const callSession = session();
+  callSession.newPatientBookingCandidate = true;
+  callSession.collectedFields.patientEmail = "madi.brown+new@example.com";
+
+  markNewPatientConfirmationPrompt(callSession, "patientEmail");
+
+  assert.equal(callSession.newPatientDataConfirmation?.prompted?.kind, "CONFIRM");
+  assert.match(
+    newPatientConfirmationQuestion(callSession, "patientEmail"),
+    /m a d i dot b r o w n plus n e w at e x a m p l e dot c o m/i
+  );
+  assert.match(newPatientConfirmationQuestion(callSession, "patientEmail"), /is that correct/i);
 });
 
 function session(): CallSession {

@@ -28,8 +28,8 @@ const patientVerificationToolAdapter: WorkflowToolAdapter = {
       arguments: {
         ...(textValue(tool.arguments?.firstName ?? session.collectedFields.firstName)
           ? { firstName: textValue(tool.arguments?.firstName ?? session.collectedFields.firstName) } : {}),
-        ...(textValue(tool.arguments?.dob ?? session.collectedFields.dob ?? session.collectedFields.dateOfBirth)
-          ? { dob: textValue(tool.arguments?.dob ?? session.collectedFields.dob ?? session.collectedFields.dateOfBirth) } : {}),
+        ...(textValue(tool.arguments?.dob ?? session.collectedFields.dob)
+          ? { dob: textValue(tool.arguments?.dob ?? session.collectedFields.dob) } : {}),
         ...(textValue(session.fromNumber) ? { fromNumber: textValue(session.fromNumber) } : {}),
         ...(tool.arguments?.continueAsNewPatient === true ? { continueAsNewPatient: true } : {})
       }
@@ -66,6 +66,20 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
     }
 
     if (requestedTool.name === verificationToolName) {
+      const missingRequiredFieldPrompt = verificationRequiredFieldPrompt(session, result);
+      if (missingRequiredFieldPrompt) {
+        return {
+          overrideResult: {
+            ...result,
+            intent: session.currentIntent ?? result.intent,
+            reply: missingRequiredFieldPrompt,
+            callerAction: undefined,
+            toolRequest: undefined,
+            shouldEndCall: false
+          },
+          instruction: "Do not call VERIFY_PATIENT again until the caller supplies the required identity field. Ask only for that field and preserve the pending appointment workflow."
+        };
+      }
       if (isNewPatientConfirmationState(session)
         && isBookingIntent(session.currentIntent)
         && !callerActionExplicitlyAuthorizesNewPatient(result)) {
@@ -182,6 +196,40 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
   }
 };
 
+function verificationRequiredFieldPrompt(session: CallSession, result: ModelTurnResult): string | undefined {
+  if (session.workflowState?.workflow !== "PATIENT_VERIFICATION"
+    || session.workflowState.state !== "NEEDS_INPUT") {
+    return undefined;
+  }
+
+  const requiredField = session.workflowState.requiredField;
+  if (!requiredField || hasCapturedRequiredField(session, result, requiredField)) {
+    return undefined;
+  }
+
+  if (requiredField === "firstName") {
+    return "To check your appointment, may I have your first name, please?";
+  }
+  if (requiredField === "dob") {
+    return "To check your appointment, may I have your date of birth, please?";
+  }
+  return `To continue, may I have your ${requiredField}, please?`;
+}
+
+function hasCapturedRequiredField(
+  session: CallSession,
+  result: ModelTurnResult,
+  requiredField: string
+): boolean {
+  const sources = [
+    result.collectedFields,
+    result.toolRequest?.arguments,
+    session.collectedFields
+  ];
+
+  return sources.some((source) => textValue(source?.[requiredField]));
+}
+
 function identityCorrectionPrompt(session: CallSession): ToolPolicyDecision | undefined {
   if (!["FIRST_NAME_NO_MATCH", "DOB_NO_MATCH"].includes(session.workflowState?.failureReason ?? "")) {
     return undefined;
@@ -259,7 +307,7 @@ function identityArguments(session: CallSession, result: ModelTurnResult): Recor
   };
   return {
     ...(textValue(fields.firstName) ? { firstName: textValue(fields.firstName) } : {}),
-    ...(textValue(fields.dob ?? fields.dateOfBirth) ? { dob: textValue(fields.dob ?? fields.dateOfBirth) } : {}),
+    ...(textValue(fields.dob) ? { dob: textValue(fields.dob) } : {}),
     ...(textValue(session.fromNumber) ? { fromNumber: textValue(session.fromNumber) } : {})
   };
 }
@@ -337,7 +385,7 @@ function rememberIdentityCorrection(session: CallSession): void {
     const previous = session.pendingActions.VERIFY_PATIENT_IDENTITY;
     session.pendingActions.VERIFY_PATIENT_IDENTITY = {
       status: "NEEDS_DOB_CORRECTION",
-      value: textValue(session.collectedFields.dob ?? session.collectedFields.dateOfBirth),
+      value: textValue(session.collectedFields.dob),
       attempts: previous?.status === "NEEDS_DOB_CORRECTION" ? (previous.attempts ?? 0) + 1 : 1,
       createdAt: new Date().toISOString()
     };
@@ -516,6 +564,6 @@ function identityFingerprint(session: CallSession): string {
   return JSON.stringify({
     fromNumber: textValue(session.fromNumber) ?? "",
     firstName: textValue(session.collectedFields.firstName) ?? "",
-    dob: textValue(session.collectedFields.dob ?? session.collectedFields.dateOfBirth) ?? ""
+    dob: textValue(session.collectedFields.dob) ?? ""
   });
 }

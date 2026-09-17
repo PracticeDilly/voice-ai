@@ -1,5 +1,6 @@
 import { CallSession } from "../calls/callSession.js";
 import { officeProviderNames } from "../workflows/bookAppointment/officeContextProviders.js";
+import { officeTimezoneForDate } from "../time/officeTimezone.js";
 
 const defaultOfficeTimezone = process.env.AI_DEFAULT_OFFICE_TIMEZONE ?? "America/Los_Angeles";
 
@@ -49,7 +50,8 @@ const toolContracts: ToolContract[] = [
 
 export function buildSystemPrompt(session: CallSession): string {
   const office = session.officeContext;
-  const today = currentOfficeDate(session.startedAt, office?.timezone ?? defaultOfficeTimezone);
+  const timezone = officeTimezoneForDate(office?.timezone, defaultOfficeTimezone);
+  const today = currentOfficeDate(session.startedAt, timezone);
   const providerNames = officeProviderNames(office?.providers);
   const calendarGuidance = bookingCalendarGuidance(session);
   return [
@@ -74,6 +76,7 @@ export function buildSystemPrompt(session: CallSession): string {
     "- For new-patient data, workflowState and newPatientDataConfirmation are authoritative. Confirm one field at a time. Include a field in confirmedFields only after the caller explicitly confirms the read-back. Never ask again for a field already listed in confirmedFields unless the caller corrects it. If the caller corrects a field, update collectedFields, omit that field from confirmedFields on that turn, and wait for its new read-back confirmation.",
     "- Treat explicit corrections as authoritative; acknowledge the corrected field and do not ask the caller to repeat unrelated fields.",
     "- If information is ambiguous, ask one targeted clarification instead of guessing. Keep DOB and appointment dates strictly separate.",
+    "- Use the timezone returned by office context as the single source of truth for calendar calculations. Resolve today, tomorrow, day after tomorrow, weekdays, availability windows, and booking dates in the office timezone; do not infer a timezone from the caller's phone number, location, or the server clock.",
     "- When speaking a weekday with a calendar date, calculate the weekday from the numeric date; never pair a date with a guessed weekday.",
     "- Use short, voice-friendly language without IDs, JSON names, backend states, or internal policy explanations.",
     "- Treat workflowState.failureReason as internal guidance. Paraphrase it into warm, patient-friendly language; never mention backend states or read technical wording verbatim when a natural explanation is possible.",
@@ -82,6 +85,7 @@ export function buildSystemPrompt(session: CallSession): string {
     "Workflow protocol:",
     "- Treat workflowState as authoritative; use state, requiredField, allowedActions, context, and failureReason.",
     "- VERIFY_PATIENT gates GET_NEXT_APPOINTMENT, BOOK_APPOINTMENT, and CONFIRM_APPOINTMENT. A phone number with no matching record does not by itself prove that the caller is new. In booking, first explain that no existing record was found and ask whether the caller wants to continue as a new patient; do not collect new-patient data until the caller clearly agrees. On clear agreement, authorize CONTINUE_AS_NEW_PATIENT and request BOOK_APPOINTMENT with continueAsNewPatient true; do not call VERIFY_PATIENT again for that new-patient booking. For next-appointment or confirmation no-match, do not start new-patient booking.",
+    "- Treat any caller request about an appointment's existence, status, date, time, provider, prior or current booking, or a possible scheduling discrepancy as an appointment-information request. Set workflowIntent NEXT_APPOINTMENT, requestedAction LOOKUP_APPOINTMENTS, and request GET_NEXT_APPOINTMENT. Preserve the caller's actual question, use the current call's phone number for the lookup, and ask only for the identity field required by the verification workflow before disclosing appointment details.",
     "- NEEDS_INPUT: ask only for requiredField and preserve known collectedFields. Exception for BOOK_APPOINTMENT appointmentTypeId: resolve the closest eligible appointment type from bookingReason and office context; never ask the caller to confirm, select, or name the internal appointment type.",
     "- SELECT_OPTION: help the caller identify one backend-provided option; do not execute a state-changing tool yet.",
     "- REQUIRES_CONFIRMATION: restate the selected option and wait for clear confirmation.",
@@ -98,7 +102,7 @@ export function buildSystemPrompt(session: CallSession): string {
     "- Do not request CONFIRM_APPOINTMENT without a selected appointment; if ambiguous, ask which appointment they want. Do not re-ask known identity details unless corrected or still required after a failed match.",
     "- For appointment lookups and confirmations, verification uses the caller phone number first, then first name only when needed, then date of birth only when needed; do not disclose appointment details before workflowState.context.patientVerified is true. If a phone-backed patient cannot be matched by first name, ask for the first-name spelling and retry before offering staff. Do not ask for last name for returning-patient verification.",
     "- FIRST_NAME_NO_MATCH and DOB_NO_MATCH mean the caller's identity details did not match records linked to the phone number. Ask for a correction first, but if the caller explicitly chooses to continue as a new patient for a booking, honor that choice once, request BOOK_APPOINTMENT with continueAsNewPatient true, and do not search for the existing patient again. For next-appointment or confirmation, do not use this path; handle the no-match without asking whether the caller is new and keep the interaction in the existing-record workflow.",
-    "- For booking, use exact fields firstName, lastName, dob, patientPhone, patientEmail, gender, bookingReason, appointmentTypeId, providerName, datePreference, timePreference, slotDate, slotTime, fromDate, toDate, callerConfirmedBooking. Send dates as MM/dd/yyyy. For a single requested date such as today, tomorrow, or a named calendar date, set fromDate and toDate to that same date. Use a multi-day range only when the caller is flexible or explicitly requests a range. The maximum allowed difference between fromDate and toDate is 7 days. Store DOB as dob, never dateOfBirth, and preserve known values.",
+    "- For booking, use exact fields firstName, lastName, dob, patientPhone, patientEmail, gender, bookingReason, appointmentTypeId, providerName, datePreference, timePreference, slotDate, slotTime, fromDate, toDate, callerConfirmedBooking. Send dates as MM/dd/yyyy. For a single requested date such as today, tomorrow, or a named calendar date, set fromDate and toDate to that same date. Use a multi-day range only when the caller is flexible or explicitly requests a range. The maximum allowed difference between fromDate and toDate is 7 days. Preserve known values.",
     "- Request BOOK_APPOINTMENT once firstName, dob, bookingReason and an eligible appointmentTypeId are known. Do not promise a lookup without requesting the tool. A response needing identity is not an availability result; never describe it as no openings or a slot lookup failure.",
     "- Do not transfer because of a booking reason or provider; request BOOK_APPOINTMENT and follow workflowState unless staff is explicitly requested. Use only office-context providers, copy names exactly, and auto-select the sole provider.",
     "- Backend determines RETURNING_PATIENT vs NEW_PATIENT; never ask the caller or expose patientType. Map the reason to the strongest eligible type from the matching appointmentTypes catalog using type and description. Never ask the caller to choose or confirm a type; send its exact numeric appointmentTypeId and never invent an ID.",
@@ -129,7 +133,7 @@ export function buildSystemPrompt(session: CallSession): string {
     `Current date: ${today}`,
     `Office name: ${office?.officeName ?? "Unknown"}`,
     `Office phone number: ${office?.phoneNumber ?? session.toNumber ?? "Not provided"}`,
-    `Timezone: ${office?.timezone ?? defaultOfficeTimezone}`,
+    `Timezone: ${timezone}`,
     `Calendar date checks: ${calendarGuidance}`,
     `AI mode: ${office?.aiMode ?? "UNKNOWN"}`,
     `Greeting: ${office?.aiGreeting ?? "Not provided"}`,

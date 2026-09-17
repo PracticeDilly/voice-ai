@@ -101,6 +101,62 @@ test("replays the active next-appointment lookup after direct patient verificati
   });
 });
 
+test("does not repeat empty verification while the workflow is waiting for a first name", () => {
+  const call = session({ currentIntent: "NEXT_APPOINTMENT" });
+  call.officeContext = {
+    officeCode: "OFC001",
+    timezone: "America/Los_Angeles",
+    allowedActions: ["VERIFY_PATIENT", "GET_NEXT_APPOINTMENT"]
+  };
+  call.pendingPatientWorkflow = {
+    name: "GET_NEXT_APPOINTMENT",
+    arguments: { fromNumber: "+19494846418" },
+    createdAt: "2026-09-17T00:00:00.000Z"
+  };
+  call.workflowState = {
+    contractVersion: 1,
+    workflow: "PATIENT_VERIFICATION",
+    state: "NEEDS_INPUT",
+    requiredField: "firstName",
+    allowedActions: ["VERIFY_PATIENT"]
+  };
+
+  const decision = applyWorkflowTurnPolicies(call, {
+    intent: "NEXT_APPOINTMENT",
+    toolRequest: { name: "VERIFY_PATIENT", arguments: {} }
+  });
+
+  assert.equal(decision?.overrideResult?.toolRequest, undefined);
+  assert.match(decision?.overrideResult?.reply ?? "", /first name/i);
+  assert.match(decision?.instruction ?? "", /Do not call VERIFY_PATIENT again/i);
+});
+
+test("does not ask again when the required field is already captured", () => {
+  const call = session({
+    currentIntent: "NEXT_APPOINTMENT",
+    collectedFields: { dob: "11/11/1999" }
+  });
+  call.officeContext = {
+    officeCode: "OFC001",
+    timezone: "America/Los_Angeles",
+    allowedActions: ["VERIFY_PATIENT", "GET_NEXT_APPOINTMENT"]
+  };
+  call.workflowState = {
+    contractVersion: 1,
+    workflow: "PATIENT_VERIFICATION",
+    state: "NEEDS_INPUT",
+    requiredField: "dob",
+    allowedActions: ["VERIFY_PATIENT"]
+  };
+
+  const decision = applyWorkflowTurnPolicies(call, {
+    intent: "NEXT_APPOINTMENT",
+    toolRequest: { name: "VERIFY_PATIENT", arguments: {} }
+  });
+
+  assert.equal(decision?.overrideResult?.reply, undefined);
+});
+
 test("continues booking after verification identifies a new-patient candidate", () => {
   const call = session({
     currentIntent: "BOOK_APPOINTMENT",

@@ -126,8 +126,7 @@ function meaningfulString(value: unknown): string | undefined {
 
 function hasNameUpdate(fields: Record<string, unknown>): boolean {
   return !!meaningfulString(fields.firstName)
-    || !!meaningfulString(fields.dob)
-    || !!meaningfulString(fields.dateOfBirth);
+    || !!meaningfulString(fields.dob);
 }
 
 function clearIdentityVerification(session: CallSession): void {

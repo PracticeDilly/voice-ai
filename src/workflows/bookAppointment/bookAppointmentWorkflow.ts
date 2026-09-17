@@ -95,7 +95,7 @@ export const bookAppointmentWorkflow: ConversationWorkflow = {
       || session.workflowState?.workflow !== "BOOK_APPOINTMENT"
       || session.workflowState.state !== "NEEDS_INPUT"
       || session.workflowState.requiredField === "dob"
-      || !hasMeaningfulValue(session.collectedFields.dob ?? session.collectedFields.dateOfBirth)) {
+      || !hasMeaningfulValue(session.collectedFields.dob)) {
       return undefined;
     }
 
