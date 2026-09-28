@@ -203,7 +203,9 @@ function isBookingSlotRepeatRequest(session: CallSession, result: ModelTurnResul
 
   const lastCallerTurn = [...session.transcript].reverse().find((turn) => turn.speaker === "patient");
   const callerText = lastCallerTurn?.text.trim().toLowerCase() ?? "";
-  return /\b(repeat|again|timings?|times?)\b/.test(callerText);
+  // "the time slot at 12:30 works" is a slot selection, not a request to
+  // repeat the available times. Only match explicit repetition language.
+  return /\b(?:repeat|again|(?:available\s+)?(?:timings|times))\b/.test(callerText);
 }
 
 function bookingConfirmationDecision(result: ModelTurnResult): ToolPolicyDecision | undefined {

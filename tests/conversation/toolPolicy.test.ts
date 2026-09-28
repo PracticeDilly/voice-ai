@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CallSession } from "../../src/calls/callSession.js";
 import { applyWorkflowToolResultPolicies, applyWorkflowTurnPolicies, prepareWorkflowTool } from "../../src/workflows/shared/workflowRegistry.js";
+import { bookingResponseContext } from "../../src/workflows/bookAppointment/bookingResponseContext.js";
 
 test("forces patient verification before a next-appointment lookup when the office enables it", () => {
   const call = session({
@@ -512,6 +513,32 @@ test("repeats existing booking slots without restarting the booking search", () 
   });
 
   assert.equal(decision?.repromptContext?.type, "BOOKING_SLOT_REPEAT");
+});
+
+test("limits repeated booking slots while preserving the backend result internally", () => {
+  const call = session({
+    currentIntent: "BOOK_APPOINTMENT",
+    workflowState: {
+      contractVersion: 1,
+      workflow: "BOOK_APPOINTMENT",
+      state: "SELECT_SLOT",
+      context: {
+        slots: [
+          { slotDate: "09/16/2026", slotTime: "08:00 AM" },
+          { slotDate: "09/16/2026", slotTime: "08:30 AM" },
+          { slotDate: "09/16/2026", slotTime: "09:00 AM" },
+          { slotDate: "09/16/2026", slotTime: "09:30 AM" },
+          { slotDate: "09/16/2026", slotTime: "10:00 AM" },
+          { slotDate: "09/16/2026", slotTime: "10:30 AM" }
+        ]
+      }
+    }
+  });
+
+  const responseContext = bookingResponseContext(call, "REPEAT_SLOTS");
+  assert.equal(responseContext.selectedAppointment?.slots?.length, 4);
+  assert.equal(responseContext.selectedAppointment?.additionalSlotCount, 2);
+  assert.equal(call.workflowState?.context?.slots?.length, 6);
 });
 
 test("forces fresh appointment lookup for follow-up questions after confirmation", () => {

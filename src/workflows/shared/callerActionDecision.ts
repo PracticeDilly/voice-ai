@@ -48,6 +48,29 @@ export function callerActionRequestsStaffTransfer(result: ModelTurnResult): bool
     || (action.speechAct === "AUTHORIZATION" && action.authorization?.isExplicit === true);
 }
 
+export function callerTextRequestsStaffTransfer(callerText: string): boolean {
+  const normalized = callerText.trim().toLocaleLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return /\b(?:talk|speak|connect|transfer|put me|let me)\b.{0,40}\b(?:office staff|staff|live agent|representative|human|someone)\b/.test(normalized)
+    || /\b(?:office staff|live agent|representative|human|someone)\b.{0,40}\b(?:talk|speak|connect|transfer)\b/.test(normalized);
+}
+
+export function callerTextAsksOfficeHours(callerText: string): boolean {
+  const normalized = callerText.trim().toLocaleLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return /\b(?:office|opening|business|working) hours?\b/.test(normalized)
+    || /\bwhen are you open\b/.test(normalized)
+    || /\bwhat time can i visit\b/.test(normalized)
+    || /\bwhat time do you open\b/.test(normalized)
+    || /\bwhat time do you close\b/.test(normalized);
+}
+
 export function callerActionExplicitlyAuthorizesConfirmation(result?: ModelTurnResult): boolean {
   return result?.callerAction?.speechAct === "AUTHORIZATION"
     && result.callerAction.authorization?.stateChangingAction === "CONFIRM_APPOINTMENT"

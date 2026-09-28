@@ -30,6 +30,7 @@ interface PromptProcessingContext {
   getNoInputCount: () => number;
   setNoInputCount: (value: number) => void;
   getAssistantBusy: () => boolean;
+  clearPendingPrompts: () => void;
   setEndingSession: (value: boolean) => void;
 }
 
@@ -111,6 +112,12 @@ export class ConversationRelayHandler {
               noInputCount = value;
             },
             getAssistantBusy: () => processingPrompt,
+            clearPendingPrompts: () => {
+              pendingPromptParts = [];
+              pendingPromptTimer = this.clearTimer(pendingPromptTimer);
+              committedPromptQueue = [];
+              this.resolvePendingPromptWaiters(pendingPromptResolvers, undefined);
+            },
             setEndingSession: (value) => {
               endingSession = value;
             }
@@ -174,7 +181,10 @@ export class ConversationRelayHandler {
               },
               latestObservedInputVersion,
               () => latestObservedInputVersion,
-              () => processingPrompt
+              () => processingPrompt,
+              (value) => {
+                endingSession = value;
+              }
             );
           } else {
             noInputTimer = this.resetNoInputTimer(
@@ -191,7 +201,10 @@ export class ConversationRelayHandler {
               },
               latestObservedInputVersion,
               () => latestObservedInputVersion,
-              () => processingPrompt
+              () => processingPrompt,
+              (value) => {
+                endingSession = value;
+              }
             );
           }
           return;
@@ -444,6 +457,7 @@ export class ConversationRelayHandler {
     if (outcome.shouldEndSession) {
       context.setEndingSession(true);
       context.setNoInputTimer(this.clearTimer(context.getNoInputTimer()));
+      context.clearPendingPrompts();
       this.scheduleCallEnd(context.session, context.ws, outcome.reply, {
         turnId: context.turnId,
         shouldTransferToStaff: outcome.shouldTransferToStaff,
@@ -465,7 +479,8 @@ export class ConversationRelayHandler {
       context.setNoInputTimer,
       context.expectedObservedInputVersion,
       context.getLatestObservedInputVersion,
-      context.getAssistantBusy
+      context.getAssistantBusy,
+      context.setEndingSession
     ));
 
     return {
@@ -583,7 +598,8 @@ export class ConversationRelayHandler {
     setNoInputTimer: (timer: ReturnType<typeof setTimeout> | undefined) => void,
     expectedInputVersion: number,
     getLatestInputVersion: () => number,
-    getAssistantBusy: () => boolean = () => false
+    getAssistantBusy: () => boolean = () => false,
+    setEndingSession: (value: boolean) => void = () => undefined
   ): ReturnType<typeof setTimeout> {
     this.clearTimer(existingTimer);
     const delayMs = this.estimatedSpeechDurationMs(assistantText) + config.AI_NO_INPUT_TIMEOUT_MS;
@@ -603,7 +619,8 @@ export class ConversationRelayHandler {
         setNoInputTimer,
         expectedInputVersion,
         getLatestInputVersion,
-        getAssistantBusy
+        getAssistantBusy,
+        setEndingSession
       );
     }, delayMs);
   }
@@ -616,7 +633,8 @@ export class ConversationRelayHandler {
     setNoInputTimer: (timer: ReturnType<typeof setTimeout> | undefined) => void,
     expectedInputVersion: number,
     getLatestInputVersion: () => number,
-    getAssistantBusy: () => boolean = () => false
+    getAssistantBusy: () => boolean = () => false,
+    setEndingSession: (value: boolean) => void = () => undefined
   ): Promise<void> {
     const isCurrent = (): boolean => ws.readyState === WebSocket.OPEN
       && expectedInputVersion === getLatestInputVersion();
@@ -644,7 +662,8 @@ export class ConversationRelayHandler {
           setNoInputTimer,
           expectedInputVersion,
           getLatestInputVersion,
-          getAssistantBusy
+          getAssistantBusy,
+          setEndingSession
         );
       }, 500));
       return;
@@ -661,12 +680,13 @@ export class ConversationRelayHandler {
       });
       setNoInputCount(attempt);
       await setImmediate();
-      if (!isCurrent()) {
+      if (!isCurrent() || getAssistantBusy()) {
         logger.info("Suppressing no-input reprompt after caller activity", {
           callSid: session.callSid,
           attempt,
           expectedInputVersion,
-          latestInputVersion: getLatestInputVersion()
+          latestInputVersion: getLatestInputVersion(),
+          assistantBusy: getAssistantBusy()
         });
         return;
       }
@@ -688,7 +708,9 @@ export class ConversationRelayHandler {
         setNoInputCount,
         setNoInputTimer,
         expectedInputVersion,
-        getLatestInputVersion
+        getLatestInputVersion,
+        getAssistantBusy,
+        setEndingSession
       ));
       return;
     }
@@ -719,6 +741,7 @@ export class ConversationRelayHandler {
       turnId: undefined,
       shouldTransferToStaff: false
     });
+    setEndingSession(true);
   }
 
   private clearTimer(timer?: ReturnType<typeof setTimeout>): undefined {
@@ -827,13 +850,14 @@ export class ConversationRelayHandler {
         shouldTransferToStaff: options.shouldTransferToStaff
       });
 
-      if (!options.shouldTransferToStaff) {
-        windowlessDelay(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.close(1000, "AI call ended");
-          }
-        }, 500);
-      }
+      // Conversation Relay may not emit its close event immediately after an
+      // end/handoff response. Close our side after the response is on the
+      // wire so no stale timers or queued turns can continue running.
+      windowlessDelay(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close(1000, options.shouldTransferToStaff ? "AI call handed off" : "AI call ended");
+        }
+      }, 500);
     }, delayMs);
   }
 

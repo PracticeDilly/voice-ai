@@ -17,7 +17,9 @@ import { prepareBookingFollowup } from "../workflows/bookAppointment/bookingFoll
 import { bookingReason, isEligibleAppointmentTypeId } from "../workflows/bookAppointment/appointmentTypeSelection.js";
 import {
   callerActionRequestsStaffTransfer,
+  callerTextAsksOfficeHours,
   callerExplicitlyEndsCall,
+  callerTextRequestsStaffTransfer,
   callerTextExplicitlyContinuesAsNewPatient
 } from "../workflows/shared/callerActionDecision.js";
 import { correctBookingWeekdayMentions } from "../workflows/bookAppointment/bookingDatePreference.js";
@@ -91,6 +93,36 @@ export class AiReceptionistOrchestrator {
     };
   }
 
+  private async directStaffTransfer(session: CallSession): Promise<ConversationTurnOutcome> {
+    const toolRequest = { name: "TRANSFER_TO_STAFF", arguments: {} } as const;
+    const toolResult = await this.tryExecuteTool(session, toolRequest);
+    session.lastToolResults[toolRequest.name] = toolResult;
+    session.workflowState = extractWorkflowEnvelope(toolResult) ?? session.workflowState;
+    this.sessions.append(session, {
+      speaker: "tool",
+      text: JSON.stringify(toolResult),
+      metadata: { toolName: toolRequest.name, source: "deterministic-caller-request" }
+    });
+
+    return {
+      reply: "I will connect you with our office staff now.",
+      shouldEndSession: true,
+      shouldTransferToStaff: true,
+      assistantMetadata: { intent: "TRANSFER_TO_STAFF", source: "deterministic-caller-request" },
+      handoffData: {
+        reasonCode: "caller-requested-live-agent",
+        reason: "Caller explicitly requested office staff.",
+        officeCode: session.officeCode,
+        callSid: session.callSid,
+        fromNumber: session.fromNumber,
+        toNumber: session.toNumber,
+        intent: "TRANSFER_TO_STAFF",
+        collectedFields: session.collectedFields,
+        workflowState: session.workflowState
+      }
+    };
+  }
+
   private async processCallerText(
     session: CallSession,
     callerText: string,
@@ -108,6 +140,21 @@ export class AiReceptionistOrchestrator {
         reply,
         assistantMetadata: { intent: "GOODBYE", source: "deterministic-caller-end" },
         shouldEndSession: true,
+        shouldTransferToStaff: false
+      };
+    }
+
+    if (callerTextRequestsStaffTransfer(callerText)) {
+      return this.directStaffTransfer(session);
+    }
+
+    if (callerTextAsksOfficeHours(callerText)) {
+      return {
+        reply: session.officeContext?.businessHoursSummary
+          ? `${session.officeContext.businessHoursSummary} Would you like me to help schedule a visit?`
+          : "I can help you schedule a visit. Would you like to choose a day and time?",
+        assistantMetadata: { intent: "OFFICE_INFORMATION", source: "deterministic-office-hours-question" },
+        shouldEndSession: false,
         shouldTransferToStaff: false
       };
     }
@@ -295,6 +342,19 @@ export class AiReceptionistOrchestrator {
       ok: typeof toolResult === "object" && toolResult !== null && "ok" in toolResult ? (toolResult as { ok?: unknown }).ok : undefined,
       durationMs: Date.now() - toolStartedAt
     });
+
+    // A staff transfer is terminal for this caller turn. Do not ask the model
+    // to interpret the transfer result and then allow it to request the same
+    // transfer again indefinitely while the Relay connection is still open.
+    if (result.toolRequest.name === "TRANSFER_TO_STAFF") {
+      return {
+        ...result,
+        intent: "TRANSFER_TO_STAFF",
+        toolRequest: undefined,
+        shouldEndCall: true,
+        reply: result.reply?.trim() || "I'll connect you with our office staff now."
+      };
+    }
 
     const toolPolicyDecision = applyWorkflowToolResultPolicies(session, result.toolRequest.name, toolResult);
     if (toolPolicyDecision?.overrideResult) {
