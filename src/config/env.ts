@@ -10,7 +10,6 @@ const envSchema = z.object({
   SPRING_BOOT_SERVICE_TOKEN: z.string().min(1),
   OPENAI_API_KEY: z.string().min(1),
   OPENAI_MODEL: z.string().min(1).default("gpt-4.1-mini"),
-  AI_MAX_SESSION_MINUTES: z.coerce.number().int().positive().default(20),
   AI_DEFAULT_OFFICE_TIMEZONE: z.string().default("America/Los_Angeles"),
   AI_END_OF_UTTERANCE_WINDOW_MS: z.coerce.number().int().positive().default(700),
   AI_PROCESSING_ACK_DELAY_MS: z.coerce.number().int().positive().default(4000),

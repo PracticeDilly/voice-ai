@@ -12,7 +12,7 @@ import {
   newPatientConfirmationQuestion,
   newPatientSummaryQuestion,
   pendingNewPatientConfirmation
-} from "./newPatientDataConfirmation.js";
+} from "../shared/newPatientDataConfirmation.js";
 
 const toolAdapter = new BookAppointmentToolAdapter();
 

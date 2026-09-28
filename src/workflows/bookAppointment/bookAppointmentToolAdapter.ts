@@ -5,8 +5,9 @@ import { WorkflowToolAdapter } from "../shared/workflowTypes.js";
 import { isBookingDatePreferenceValid, isBookingDateRangeValid } from "./bookingDatePreference.js";
 import { normalizeBookingArguments } from "./bookingArgumentNormalizer.js";
 import { providerNameMatchesOfficeContext } from "./officeContextProviders.js";
-import { bookingPatientType, isEligibleAppointmentTypeId } from "./appointmentTypeSelection.js";
-import { allNewPatientDataConfirmed, hasAllNewPatientData, isNewPatientBooking } from "./newPatientDataConfirmation.js";
+import { isEligibleAppointmentTypeId } from "./appointmentTypeSelection.js";
+import { bookingPatientType } from "../shared/patientType.js";
+import { allNewPatientDataConfirmed, hasAllNewPatientData, isNewPatientBooking } from "../shared/newPatientDataConfirmation.js";
 
 const SLOT_NOT_AVAILABLE_MESSAGE = "Select a slot returned by the availability search.";
 

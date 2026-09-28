@@ -8,13 +8,13 @@ import { buildSystemPrompt } from "./promptBuilder.js";
 import { BookingWorkflowError, bookingModelContractError } from "../workflows/bookAppointment/bookingModelContract.js";
 import { bookingResponseContext, bookingResponseInstruction, BookingResponsePurpose } from "../workflows/bookAppointment/bookingResponseContext.js";
 import {
-  bookingPatientType,
   bookingReason,
   eligibleAppointmentTypes,
   isEligibleAppointmentTypeId
 } from "../workflows/bookAppointment/appointmentTypeSelection.js";
+import { bookingPatientType } from "../workflows/shared/patientType.js";
 import { logger } from "../utils/logger.js";
-import { newPatientDataConfirmationContext } from "../workflows/bookAppointment/newPatientDataConfirmation.js";
+import { newPatientDataConfirmationContext } from "../workflows/shared/newPatientDataConfirmation.js";
 
 export interface ModelTurnResult {
   reply?: string;

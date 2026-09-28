@@ -13,6 +13,21 @@ function shouldLog(level: LogLevel): boolean {
   return rank[level] >= rank[config.LOG_LEVEL];
 }
 
+function serialize(value: unknown): string {
+  try {
+    return JSON.stringify(value, (_key, nestedValue: unknown) => (
+      typeof nestedValue === "bigint" ? nestedValue.toString() : nestedValue
+    ));
+  } catch (error) {
+    return JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: "error",
+      message: "Logger serialization failed",
+      meta: { error: String(error) }
+    });
+  }
+}
+
 function write(level: LogLevel, message: string, meta?: unknown): void {
   if (!shouldLog(level)) {
     return;
@@ -23,7 +38,13 @@ function write(level: LogLevel, message: string, meta?: unknown): void {
     message,
     meta
   };
-  console.log(JSON.stringify(line));
+  const serialized = serialize(line);
+  if (level === "error") {
+    console.error(serialized);
+    return;
+  }
+
+  console.log(serialized);
 }
 
 export const logger = {

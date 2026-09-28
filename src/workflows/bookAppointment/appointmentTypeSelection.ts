@@ -1,13 +1,5 @@
 import type { CallSession, OfficeAppointmentTypeContext } from "../../calls/callSession.js";
-
-export type BookingPatientType = "NEW_PATIENT" | "RETURNING_PATIENT";
-
-export function bookingPatientType(session: CallSession): BookingPatientType {
-  return session.newPatientBookingCandidate === true
-    || session.workflowState?.context?.patientType === "NEW_PATIENT"
-    ? "NEW_PATIENT"
-    : "RETURNING_PATIENT";
-}
+import { bookingPatientType } from "../shared/patientType.js";
 
 export function eligibleAppointmentTypes(session: CallSession): OfficeAppointmentTypeContext[] {
   return (session.officeContext?.appointmentTypes?.[bookingPatientType(session)] ?? [])

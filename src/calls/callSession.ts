@@ -1,5 +1,5 @@
 import { WorkflowEnvelope } from "../workflows/workflowState.js";
-import type { NewPatientDataConfirmationState } from "../workflows/bookAppointment/newPatientDataConfirmation.js";
+import type { NewPatientDataConfirmationState } from "../workflows/shared/newPatientDataConfirmation.js";
 
 export type Speaker = "patient" | "assistant" | "system" | "tool";
 

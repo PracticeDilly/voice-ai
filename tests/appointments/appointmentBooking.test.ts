@@ -12,7 +12,7 @@ import {
   markNewPatientConfirmationPrompt,
   newPatientConfirmationQuestion,
   synchronizeNewPatientDataConfirmation
-} from "../../src/workflows/bookAppointment/newPatientDataConfirmation.js";
+} from "../../src/workflows/shared/newPatientDataConfirmation.js";
 
 test("prepares booking request with caller number and collected conversational fields", () => {
   const callSession = session();

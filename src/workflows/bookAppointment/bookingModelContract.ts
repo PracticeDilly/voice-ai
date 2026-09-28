@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { CallSession } from "../../calls/callSession.js";
 import type { ModelTurnResult } from "../../conversation/modelClient.js";
-import { bookingPatientType } from "./appointmentTypeSelection.js";
+import { bookingPatientType } from "../shared/patientType.js";
 
 const textField = z.string().nullable().optional();
 export class BookingWorkflowError extends Error {}

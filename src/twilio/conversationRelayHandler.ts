@@ -51,6 +51,29 @@ export class ConversationRelayHandler {
     let nextTurnId = 0;
     let latestObservedInputVersion = 0;
     let endingSession = false;
+    let connectionClosed = false;
+    let finalizationStarted = false;
+
+    const finalizeSession = async (): Promise<void> => {
+      if (finalizationStarted || !callSid) {
+        return;
+      }
+
+      finalizationStarted = true;
+      const session = this.sessions.get(callSid);
+      if (!session) {
+        return;
+      }
+
+      try {
+        await this.orchestrator.completeSession(session);
+        logger.info("Conversation Relay session completed", { callSid });
+      } catch (error) {
+        logger.error("Failed to complete Conversation Relay session", { callSid, error: String(error) });
+      } finally {
+        this.sessions.delete(callSid);
+      }
+    };
 
     const processCommittedPrompts = async (session: CallSession): Promise<void> => {
       if (processingPrompt) {
@@ -123,6 +146,10 @@ export class ConversationRelayHandler {
         if (this.isSetupMessage(message)) {
           const session = await this.handleSetup(message);
           callSid = session.callSid;
+          if (connectionClosed) {
+            await finalizeSession();
+            return;
+          }
           const greeting = session.officeContext?.aiGreeting ?? "Thank you for calling. How can I help you today?";
           if (message.customParameters?.welcomeGreetingProvided !== "true") {
             await this.orchestrator.recordAssistantTurn(session, greeting, {
@@ -303,24 +330,22 @@ export class ConversationRelayHandler {
       }
     });
 
-    ws.on("close", async () => {
+    ws.on("error", (error) => {
+      connectionClosed = true;
+      logger.error("Conversation Relay WebSocket error", { callSid, error: String(error) });
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close(1011, "WebSocket error");
+      }
+      void finalizeSession();
+    });
+
+    ws.on("close", () => {
+      connectionClosed = true;
       pendingPromptTimer = this.clearTimer(pendingPromptTimer);
       committedPromptQueue = [];
       noInputTimer = this.clearTimer(noInputTimer);
       this.resolvePendingPromptWaiters(pendingPromptResolvers, undefined);
-      if (!callSid) {
-        return;
-      }
-      const session = this.sessions.get(callSid);
-      if (!session) {
-        return;
-      }
-      try {
-        await this.orchestrator.completeSession(session);
-        logger.info("Conversation Relay session completed", { callSid });
-      } catch (error) {
-        logger.error("Failed to complete Conversation Relay session", { callSid, error: String(error) });
-      }
+      void finalizeSession();
     });
   }
 

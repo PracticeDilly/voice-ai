@@ -6,7 +6,7 @@ import {
   callerActionRequestsStaffTransfer
 } from "./callerActionDecision.js";
 import { ConversationWorkflow, ToolPolicyDecision, WorkflowToolAdapter } from "./workflowTypes.js";
-import { newPatientConfirmationFields } from "../bookAppointment/newPatientDataConfirmation.js";
+import { newPatientConfirmationFields } from "./newPatientDataConfirmation.js";
 
 const patientSpecificTools = new Set([
   "GET_NEXT_APPOINTMENT",

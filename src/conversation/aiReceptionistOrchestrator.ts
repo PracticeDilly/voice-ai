@@ -24,7 +24,7 @@ import { correctBookingWeekdayMentions } from "../workflows/bookAppointment/book
 import {
   constrainNewPatientDataUpdates,
   synchronizeNewPatientDataConfirmation
-} from "../workflows/bookAppointment/newPatientDataConfirmation.js";
+} from "../workflows/shared/newPatientDataConfirmation.js";
 
 const MAX_PATIENT_VERIFICATION_TOOL_CHAIN_DEPTH = 3;
 const COMPLETE_CALL_MAX_ATTEMPTS = 3;

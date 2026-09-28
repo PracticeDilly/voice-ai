@@ -1,6 +1,6 @@
 import type { CallSession } from "../../calls/callSession.js";
 import type { ModelTurnResult } from "../../conversation/modelClient.js";
-import { bookingPatientType } from "./appointmentTypeSelection.js";
+import { bookingPatientType } from "./patientType.js";
 
 export const newPatientConfirmationFields = [
   "firstName",
@@ -401,3 +401,4 @@ function isLikelyFieldRestatement(field: NewPatientConfirmationField, value: str
       return /^[a-z](?:[a-z\s'-]{1,40})$/i.test(normalized);
   }
 }
+
