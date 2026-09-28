@@ -202,6 +202,7 @@ test("transfers an explicit staff request without another model turn", async () 
   assert.equal(outcome.shouldEndSession, true);
   assert.equal(outcome.shouldTransferToStaff, true);
   assert.match(outcome.reply, /office staff/i);
+  assert.equal(outcome.handoffData?.reasonCode, "live-agent-handoff");
 });
 
 test("returns a response when patient verification tools recurse repeatedly", async () => {

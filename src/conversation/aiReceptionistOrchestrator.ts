@@ -110,7 +110,7 @@ export class AiReceptionistOrchestrator {
       shouldTransferToStaff: true,
       assistantMetadata: { intent: "TRANSFER_TO_STAFF", source: "deterministic-caller-request" },
       handoffData: {
-        reasonCode: "caller-requested-live-agent",
+        reasonCode: "live-agent-handoff",
         reason: "Caller explicitly requested office staff.",
         officeCode: session.officeCode,
         callSid: session.callSid,
