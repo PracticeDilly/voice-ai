@@ -58,6 +58,18 @@ function applyConfirmationExecutionBoundary(
     return undefined;
   }
 
+  if (shouldRefreshAfterCompletedConfirmation(session, context)) {
+    return {
+      overrideResult: {
+        ...result,
+        toolRequest: {
+          name: "GET_NEXT_APPOINTMENT",
+          arguments: confirmationLookupArguments(session)
+        }
+      }
+    };
+  }
+
   if (callerActionIsConfirmationQuestion(result)) {
     return {
       instruction: "The caller is asking about appointment confirmation, not authorizing a state-changing confirmation. Explain that you can help confirm an appointment, and ask which appointment they would like to confirm. Do not request CONFIRM_APPOINTMENT.",
@@ -243,6 +255,32 @@ function shouldAnswerFromCompletedConfirmation(
 
   return isConfirmIntent(context.result.intent)
     || context.result.toolRequest?.name === "CONFIRM_APPOINTMENT";
+}
+
+function shouldRefreshAfterCompletedConfirmation(
+  session: CallSession,
+  context: ReturnType<typeof createConfirmAppointmentTurnContext>
+): boolean {
+  return context.stateView.isCompleted()
+    && context.result.toolRequest?.name === "CONFIRM_APPOINTMENT"
+    && !context.pendingConfirmationStatus
+    && !context.pendingSelection
+    && context.selectionOptions.length === 0
+    && isSuccessfulToolResult(session.lastToolResults.CONFIRM_APPOINTMENT);
+}
+
+function confirmationLookupArguments(session: CallSession): Record<string, string> {
+  const argumentsForLookup: Record<string, string> = {};
+  if (typeof session.collectedFields.firstName === "string" && session.collectedFields.firstName) {
+    argumentsForLookup.firstName = session.collectedFields.firstName;
+  }
+  if (typeof session.collectedFields.dob === "string" && session.collectedFields.dob) {
+    argumentsForLookup.dob = session.collectedFields.dob;
+  }
+  if (session.fromNumber) {
+    argumentsForLookup.fromNumber = session.fromNumber;
+  }
+  return argumentsForLookup;
 }
 
 function isSuccessfulToolResult(toolResult: unknown): boolean {

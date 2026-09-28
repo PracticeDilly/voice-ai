@@ -767,6 +767,91 @@ test("returns a bounded choice prompt when confirmation is still ambiguous", asy
   assert.match(outcome.reply, /August 27, 2026/i);
 });
 
+test("refreshes and confirms the newly selected appointment after an earlier confirmation", async () => {
+  const sessions = new CallSessionStore();
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  const session = sessions.create({
+    callSid: "CA-confirm-after-confirm",
+    officeCode: "MSHNN",
+    fromNumber: "+15551234567"
+  });
+  session.currentIntent = "CONFIRM_APPOINTMENT";
+  session.collectedFields = { firstName: "Mary", dob: "01/01/2004" };
+  session.lastToolResults.CONFIRM_APPOINTMENT = { name: "CONFIRM_APPOINTMENT", ok: true };
+  session.workflowState = {
+    contractVersion: 1,
+    workflow: "CONFIRM_APPOINTMENT",
+    state: "COMPLETED",
+    allowedActions: [],
+    context: { selectedAppointmentId: 93103, alreadyConfirmed: false }
+  };
+
+  const executedTools: ToolRequest[] = [];
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      return {
+        intent: "CONFIRM_APPOINTMENT",
+        callerAction: explicitConfirmation(),
+        toolRequest: {
+          name: "CONFIRM_APPOINTMENT",
+          arguments: { appointmentId: 93103 }
+        },
+        reply: "I can confirm that appointment."
+      };
+    },
+    async continueWithToolResult() {
+      throw new Error("successful confirmation should use the deterministic backend-backed reply");
+    },
+    async continueWithPolicyInstruction() {
+      throw new Error("successful confirmation should not use a policy reprompt");
+    }
+  } });
+  Object.defineProperty(orchestrator, "toolExecutor", { value: {
+    async execute(_session: CallSession, tool: ToolRequest): Promise<ToolResult> {
+      executedTools.push(tool);
+      if (tool.name === "GET_NEXT_APPOINTMENT") {
+        return {
+          name: tool.name,
+          ok: true,
+          data: {
+            appointmentId: 93102,
+            upcomingAppointments: [
+              {
+                appointmentId: 93103,
+                appointmentDate: "12:30 PM on Friday, October 2, 2026",
+                alreadyConfirmed: true
+              },
+              {
+                appointmentId: 93102,
+                appointmentDate: "10:00 AM on Tuesday, September 29, 2026",
+                alreadyConfirmed: false
+              }
+            ]
+          }
+        };
+      }
+      return {
+        name: tool.name,
+        ok: true,
+        workflowState: {
+          contractVersion: 1,
+          workflow: "CONFIRM_APPOINTMENT",
+          state: "COMPLETED",
+          allowedActions: [],
+          context: { selectedAppointmentId: 93102, alreadyConfirmed: false }
+        }
+      };
+    }
+  } });
+
+  const outcome = await orchestrator.handleCallerText(session, "Okay. Let's confirm it.", { recordCallerTurn: false });
+
+  assert.deepEqual(executedTools.map((tool) => tool.name), ["GET_NEXT_APPOINTMENT", "CONFIRM_APPOINTMENT"]);
+  assert.equal(executedTools[1]?.arguments?.appointmentId, 93102);
+  assert.match(outcome.reply, /September 29, 2026/i);
+  assert.equal(outcome.shouldTransferToStaff, false);
+});
+
 function buildSession(store: CallSessionStore): CallSession {
   const session = store.create({
     callSid: "CA-test",

@@ -7,6 +7,7 @@ import {
   promoteConfirmAppointmentPendingAction,
   syncConfirmAppointmentFromLookup
 } from "../workflows/confirmAppointment/confirmAppointmentPendingAction.js";
+import { selectedConfirmAppointmentOption } from "../workflows/confirmAppointment/confirmAppointmentSelectionStore.js";
 import { ToolExecutor } from "../tools/toolExecutor.js";
 import { logger } from "../utils/logger.js";
 import { applyWorkflowToolResultPolicies, applyWorkflowTurnPolicies } from "../workflows/shared/workflowRegistry.js";
@@ -316,7 +317,10 @@ export class AiReceptionistOrchestrator {
     const toolResult = await this.tryExecuteTool(session, result.toolRequest);
     session.lastToolResults[result.toolRequest.name] = toolResult;
     session.workflowState = extractWorkflowEnvelope(toolResult) ?? session.workflowState;
-    syncConfirmAppointmentFromLookup(session, result.toolRequest.name, toolResult, session.currentIntent);
+    const confirmedAppointment = result.toolRequest.name === "CONFIRM_APPOINTMENT" && isSuccessfulToolResult(toolResult)
+      ? selectedConfirmAppointmentOption(session, result.toolRequest.arguments, result)
+      : undefined;
+    syncConfirmAppointmentFromLookup(session, result.toolRequest.name, toolResult, session.currentIntent, result);
     promoteConfirmAppointmentPendingAction(session, result);
     invalidateAppointmentLookupCacheAfterConfirmation(session, result.toolRequest.name, toolResult);
     consumeConfirmAppointmentPendingAction(session, result.toolRequest.name, toolResult);
@@ -353,6 +357,17 @@ export class AiReceptionistOrchestrator {
         toolRequest: undefined,
         shouldEndCall: true,
         reply: result.reply?.trim() || "I'll connect you with our office staff now."
+      };
+    }
+
+    if (result.toolRequest.name === "CONFIRM_APPOINTMENT" && isSuccessfulToolResult(toolResult)) {
+      return {
+        ...result,
+        toolRequest: undefined,
+        shouldEndCall: false,
+        reply: confirmedAppointment?.appointmentDate
+          ? `Your appointment at ${confirmedAppointment.appointmentDate} has been confirmed.`
+          : "Your appointment has been confirmed successfully."
       };
     }
 
@@ -782,4 +797,11 @@ export class AiReceptionistOrchestrator {
     return Array.isArray(appointments) ? appointments.length : undefined;
   }
 
+}
+
+function isSuccessfulToolResult(toolResult: unknown): boolean {
+  return !!toolResult
+    && typeof toolResult === "object"
+    && "ok" in toolResult
+    && (toolResult as { ok?: unknown }).ok === true;
 }

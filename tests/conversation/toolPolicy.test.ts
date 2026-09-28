@@ -1068,6 +1068,42 @@ test("answers from completed confirmation state instead of re-confirming", () =>
   assert.match(decision?.instruction ?? "", /already completed/i);
 });
 
+test("refreshes appointment data before confirming after a prior confirmation", () => {
+  const decision = applyWorkflowTurnPolicies(session({
+    collectedFields: {
+      firstName: "Mary",
+      dob: "01/01/2004"
+    },
+    lastToolResults: {
+      CONFIRM_APPOINTMENT: { ok: true }
+    },
+    workflowState: {
+      contractVersion: 1,
+      workflow: "CONFIRM_APPOINTMENT",
+      state: "COMPLETED",
+      allowedActions: [],
+      context: {
+        selectedAppointmentId: 93103,
+        alreadyConfirmed: false
+      }
+    }
+  }), {
+    intent: "CONFIRM_APPOINTMENT",
+    toolRequest: {
+      name: "CONFIRM_APPOINTMENT",
+      arguments: {
+        appointmentId: 93103
+      }
+    }
+  });
+
+  assert.equal(decision?.overrideResult?.toolRequest?.name, "GET_NEXT_APPOINTMENT");
+  assert.deepEqual(decision?.overrideResult?.toolRequest?.arguments, {
+    firstName: "Mary",
+    dob: "01/01/2004"
+  });
+});
+
 test("allows a new appointment lookup after completed confirmation", () => {
   const original = {
     intent: "CONFIRM_APPOINTMENT",

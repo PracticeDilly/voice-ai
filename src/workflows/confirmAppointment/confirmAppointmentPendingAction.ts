@@ -16,7 +16,8 @@ export function syncConfirmAppointmentFromLookup(
   session: CallSession,
   toolName: string,
   toolResult: ToolResult,
-  activeIntent: string | undefined
+  activeIntent: string | undefined,
+  result?: ModelTurnResult
 ): void {
   if (toolName !== "GET_NEXT_APPOINTMENT" || !isConfirmIntent(activeIntent) || toolResult.ok !== true) {
     return;
@@ -36,7 +37,9 @@ export function syncConfirmAppointmentFromLookup(
 
   session.pendingActions.CONFIRM_APPOINTMENT = {
     appointmentId,
-    status: "AWAITING_CALLER_CONFIRMATION",
+    status: callerActionExplicitlyAuthorizesConfirmation(result)
+      ? "READY_TO_EXECUTE"
+      : "AWAITING_CALLER_CONFIRMATION",
     createdAt: new Date().toISOString()
   };
 }
