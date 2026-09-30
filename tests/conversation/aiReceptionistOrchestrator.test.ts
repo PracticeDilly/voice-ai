@@ -287,9 +287,19 @@ test("asks for confirmation before transferring an explicit staff request", asyn
   const sessions = new CallSessionStore();
   const orchestrator = new AiReceptionistOrchestrator(sessions);
   const session = sessions.create({ callSid: "CA-direct-staff", officeCode: "TEST" });
+  let modelTurns = 0;
   Object.defineProperty(orchestrator, "modelClient", { value: {
-    async nextTurn() {
-      throw new Error("an explicit staff request should not wait for another model turn");
+    async nextTurn(_session: CallSession, callerText: string) {
+      modelTurns += 1;
+      if (callerText === "Yes, please.") {
+        return { callerAction: {
+          speechAct: "AUTHORIZATION",
+          workflowIntent: "TRANSFER_TO_STAFF",
+          requestedAction: "TRANSFER_TO_STAFF",
+          authorization: { stateChangingAction: "TRANSFER_TO_STAFF", isExplicit: true }
+        } };
+      }
+      throw new Error("an explicit staff request should not wait for a model turn");
     }
   } });
   Object.defineProperty(orchestrator, "toolExecutor", { value: {
@@ -314,6 +324,7 @@ test("asks for confirmation before transferring an explicit staff request", asyn
   assert.equal(outcome.shouldTransferToStaff, true);
   assert.match(outcome.reply, /office staff/i);
   assert.equal(outcome.handoffData?.reasonCode, "live-agent-handoff");
+  assert.equal(modelTurns, 1);
 });
 
 test("transfers after a model offered staff and the caller says Yeah. Sure.", async () => {
@@ -323,8 +334,16 @@ test("transfers after a model offered staff and the caller says Yeah. Sure.", as
   let modelTurns = 0;
   let transfers = 0;
   Object.defineProperty(orchestrator, "modelClient", { value: {
-    async nextTurn() {
+    async nextTurn(_session: CallSession, callerText: string) {
       modelTurns += 1;
+      if (callerText === "Yeah. Sure.") {
+        return { callerAction: {
+          speechAct: "AUTHORIZATION",
+          workflowIntent: "TRANSFER_TO_STAFF",
+          requestedAction: "TRANSFER_TO_STAFF",
+          authorization: { stateChangingAction: "TRANSFER_TO_STAFF", isExplicit: true }
+        } };
+      }
       return {
         intent: "insurance_questions",
         reply: "I don't have the specific list of insurance plans supported by our office. Would you like me to connect you with a staff member who can provide that information?"
@@ -343,7 +362,7 @@ test("transfers after a model offered staff and the caller says Yeah. Sure.", as
   assert.equal(session.pendingActions.TRANSFER_TO_STAFF?.status, "AWAITING_CALLER_CONFIRMATION");
 
   const outcome = await orchestrator.handleCallerText(session, "Yeah. Sure.", { recordCallerTurn: false });
-  assert.equal(modelTurns, 1);
+  assert.equal(modelTurns, 2);
   assert.equal(transfers, 1);
   assert.equal(outcome.shouldTransferToStaff, true);
   assert.equal(outcome.shouldEndSession, true);
@@ -355,7 +374,10 @@ test("clears a model offered transfer when the caller declines", async () => {
   const orchestrator = new AiReceptionistOrchestrator(sessions);
   const session = sessions.create({ callSid: "CA-insurance-no-transfer", officeCode: "TEST" });
   Object.defineProperty(orchestrator, "modelClient", { value: {
-    async nextTurn() {
+    async nextTurn(_session: CallSession, callerText: string) {
+      if (callerText === "No, thanks.") {
+        return { callerAction: { speechAct: "DECLINE", workflowIntent: "TRANSFER_TO_STAFF" } };
+      }
       return {
         intent: "insurance_questions",
         reply: "Would you like me to connect you with our office staff?"
@@ -373,6 +395,34 @@ test("clears a model offered transfer when the caller declines", async () => {
   assert.match(outcome.reply, /won't transfer/i);
   assert.equal(outcome.shouldTransferToStaff, false);
   assert.equal(session.pendingActions.TRANSFER_TO_STAFF, undefined);
+});
+
+test("keeps the transfer offer pending when the caller's answer is unclear", async () => {
+  const sessions = new CallSessionStore();
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  const session = sessions.create({ callSid: "CA-insurance-unclear-transfer", officeCode: "TEST" });
+  let transfers = 0;
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn(_session: CallSession, callerText: string) {
+      if (callerText === "Can you help with insurance?") {
+        return { reply: "Would you like me to connect you with our office staff?" };
+      }
+      return { callerAction: { speechAct: "UNKNOWN", workflowIntent: "TRANSFER_TO_STAFF" } };
+    }
+  } });
+  Object.defineProperty(orchestrator, "toolExecutor", { value: {
+    async execute() {
+      transfers += 1;
+      return { name: "TRANSFER_TO_STAFF", ok: true };
+    }
+  } });
+
+  await orchestrator.handleCallerText(session, "Can you help with insurance?", { recordCallerTurn: false });
+  const outcome = await orchestrator.handleCallerText(session, "I'm not sure", { recordCallerTurn: false });
+
+  assert.match(outcome.reply, /please say yes or no/i);
+  assert.equal(transfers, 0);
+  assert.equal(session.pendingActions.TRANSFER_TO_STAFF?.status, "AWAITING_CALLER_CONFIRMATION");
 });
 
 test("asks for the missing identity field instead of recursing verification tools", async () => {
@@ -431,7 +481,15 @@ test("requires confirmation before executing a model-requested staff transfer", 
   const executed: ToolRequest[] = [];
 
   Object.defineProperty(orchestrator, "modelClient", { value: {
-    async nextTurn() {
+    async nextTurn(_session: CallSession, callerText: string) {
+      if (callerText === "Yes.") {
+        return { callerAction: {
+          speechAct: "AUTHORIZATION",
+          workflowIntent: "TRANSFER_TO_STAFF",
+          requestedAction: "TRANSFER_TO_STAFF",
+          authorization: { stateChangingAction: "TRANSFER_TO_STAFF", isExplicit: true }
+        } };
+      }
       return {
         intent: "TRANSFER_TO_STAFF",
         reply: "I will connect you with the office staff now.",

@@ -62,6 +62,8 @@ export function buildSystemPrompt(session: CallSession): string {
     "Return only valid JSON with keys: reply, intent, callerAction, toolRequest, collectedFields, updatedFields, confirmedFields, shouldEndCall.",
     "callerAction.workflowIntent may be NEXT_APPOINTMENT, CONFIRM_APPOINTMENT, BOOK_APPOINTMENT, TRANSFER_TO_STAFF, OFFICE_INFORMATION, or UNKNOWN.",
     "callerAction.requestedAction may be LOOKUP_APPOINTMENTS, CONFIRM_SELECTED_APPOINTMENT, BOOK_APPOINTMENT, TRANSFER_TO_STAFF, or NONE.",
+    "callerAction.speechAct may be QUESTION, REQUEST, AUTHORIZATION, DECLINE, CORRECTION, ACKNOWLEDGEMENT, GOODBYE, or UNKNOWN.",
+    "When pendingActions.TRANSFER_TO_STAFF is awaiting caller confirmation, interpret the caller's reply in context: for clear agreement, return speechAct AUTHORIZATION, workflowIntent TRANSFER_TO_STAFF, and authorization.stateChangingAction TRANSFER_TO_STAFF with isExplicit true; for a clear refusal, return speechAct DECLINE and workflowIntent TRANSFER_TO_STAFF; for uncertainty, questions, or unrelated replies, do not authorize or decline the transfer.",
     "For explicit new-patient consent, use callerAction.speechAct AUTHORIZATION with authorization.stateChangingAction CONTINUE_AS_NEW_PATIENT and authorization.isExplicit true.",
     "If a tool is needed, set toolRequest and keep reply brief.",
     "",

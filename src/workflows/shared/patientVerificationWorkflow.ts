@@ -7,6 +7,12 @@ import {
 } from "./callerActionDecision.js";
 import { ConversationWorkflow, ToolPolicyDecision, WorkflowToolAdapter } from "./workflowTypes.js";
 import { newPatientDataFields } from "./newPatientDataConfirmation.js";
+import { logger } from "../../utils/logger.js";
+import { callerTextExplicitlyContinuesAsNewPatient } from "./callerActionDecision.js";
+import {
+  constrainNewPatientDataUpdates,
+  synchronizeNewPatientDataConfirmation
+} from "./newPatientDataConfirmation.js";
 
 const patientSpecificTools = new Set([
   "GET_NEXT_APPOINTMENT",
@@ -16,6 +22,7 @@ const patientSpecificTools = new Set([
 
 const verificationToolName = "VERIFY_PATIENT";
 const maxIdentityVerificationAttempts = 2;
+const maxPatientVerificationToolChainDepth = 3;
 
 const patientVerificationToolAdapter: WorkflowToolAdapter = {
   supports(tool: ToolRequest): boolean {
@@ -40,6 +47,65 @@ const patientVerificationToolAdapter: WorkflowToolAdapter = {
 export const patientVerificationWorkflow: ConversationWorkflow = {
   name: "PATIENT_VERIFICATION",
   toolAdapter: patientVerificationToolAdapter,
+  modelLifecycle: {
+    constrainResult(session, result) {
+      constrainNewPatientDataUpdates(session, result);
+    },
+    synchronizeData(session, result, callerText) {
+      synchronizeNewPatientDataConfirmation(session, result, callerText);
+    },
+    applyCallerAuthorization(session, callerText, result) {
+      if (result.callerAction?.authorization?.stateChangingAction === "CONTINUE_AS_NEW_PATIENT") {
+        return result;
+      }
+
+      const previousAssistantText = [...session.transcript]
+        .reverse()
+        .find((turn) => turn.speaker === "assistant")?.text;
+      if (!callerTextExplicitlyContinuesAsNewPatient(callerText, previousAssistantText)) {
+        return result;
+      }
+
+      logger.info("Applied deterministic new-patient authorization from caller speech", {
+        callSid: session.callSid,
+        officeCode: session.officeCode,
+        callerText
+      });
+      return {
+        ...result,
+        intent: "BOOK_APPOINTMENT",
+        callerAction: {
+          speechAct: "AUTHORIZATION",
+          workflowIntent: "BOOK_APPOINTMENT",
+          requestedAction: "BOOK_APPOINTMENT",
+          authorization: {
+            stateChangingAction: "CONTINUE_AS_NEW_PATIENT",
+            isExplicit: true
+          }
+        }
+      };
+    }
+  },
+
+  limitToolChain(session: CallSession, result: ModelTurnResult, toolChainDepth: number): ModelTurnResult | undefined {
+    if (result.toolRequest?.name !== verificationToolName
+      || toolChainDepth < maxPatientVerificationToolChainDepth) {
+      return undefined;
+    }
+
+    logger.warn("Patient verification tool chain limit reached", {
+      callSid: session.callSid,
+      officeCode: session.officeCode,
+      toolChainDepth
+    });
+    return {
+      ...result,
+      intent: session.currentIntent ?? result.intent,
+      reply: "I'm still unable to verify your information. Would you like me to connect you with our office staff?",
+      toolRequest: undefined,
+      shouldEndCall: false
+    };
+  },
 
   applyTurnPolicy(session: CallSession, result: ModelTurnResult): ToolPolicyDecision | undefined {
     if (isBookingIntent(session.currentIntent)
@@ -129,7 +195,12 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
     };
   },
 
-  applyToolResultPolicy(session: CallSession, toolName: string, toolResult: unknown): ToolPolicyDecision | undefined {
+  applyToolResultPolicy(
+    session: CallSession,
+    toolName: string,
+    toolResult: unknown,
+    request?: ModelTurnResult
+  ): ToolPolicyDecision | undefined {
     if (toolName === "BOOK_APPOINTMENT" && isCompletedBookingResult(toolResult)) {
       session.newPatientBookingCandidate = false;
       delete session.newPatientDataConfirmation;
@@ -144,6 +215,16 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
       delete session.verifiedIdentityFingerprint;
       rememberIdentityCorrection(session);
       return identityCorrectionPrompt(session);
+    }
+
+    if (session.workflowState?.workflow === "PATIENT_VERIFICATION"
+      && session.workflowState.state === "COMPLETED") {
+      for (const field of ["firstName", "dob"] as const) {
+        const value = request?.toolRequest?.arguments[field];
+        if (typeof value === "string" && value.trim()) {
+          session.collectedFields[field] = value.trim();
+        }
+      }
     }
 
     if (isNewPatientCandidateState(session) && session.pendingPatientWorkflow?.name === "BOOK_APPOINTMENT") {

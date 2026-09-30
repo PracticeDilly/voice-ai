@@ -4,6 +4,7 @@ export type SpeechAct =
   | "QUESTION"
   | "REQUEST"
   | "AUTHORIZATION"
+  | "DECLINE"
   | "CORRECTION"
   | "ACKNOWLEDGEMENT"
   | "GOODBYE"
@@ -25,7 +26,7 @@ export type RequestedAction =
   | "NONE";
 
 export interface CallerActionAuthorization {
-  stateChangingAction?: "CONFIRM_APPOINTMENT" | "BOOK_APPOINTMENT" | "CONTINUE_AS_NEW_PATIENT" | null;
+  stateChangingAction?: "CONFIRM_APPOINTMENT" | "BOOK_APPOINTMENT" | "CONTINUE_AS_NEW_PATIENT" | "TRANSFER_TO_STAFF" | null;
   isExplicit?: boolean;
   selectedAppointmentReference?: Record<string, unknown> | null;
 }
@@ -58,9 +59,10 @@ export function callerTextRequestsStaffTransfer(callerText: string): boolean {
     || /\b(?:office staff|live agent|representative|human|someone)\b.{0,40}\b(?:talk|speak|connect|transfer)\b/.test(normalized);
 }
 
-export function callerTextConfirmsStaffTransfer(callerText: string): boolean {
-  return /^(?:(?:yes|yeah|yep|yup|sure|okay|ok|please do|go ahead|that works|connect me|transfer me)[\s,.!?]*)+(?:please[\s,.!?]*)?$/i
-    .test(callerText.trim());
+export function callerActionExplicitlyAuthorizesStaffTransfer(result?: ModelTurnResult): boolean {
+  return result?.callerAction?.speechAct === "AUTHORIZATION"
+    && result.callerAction.authorization?.stateChangingAction === "TRANSFER_TO_STAFF"
+    && result.callerAction.authorization.isExplicit === true;
 }
 
 export function assistantTextOffersStaffTransfer(assistantText: string): boolean {
@@ -68,9 +70,9 @@ export function assistantTextOffersStaffTransfer(assistantText: string): boolean
     .test(assistantText);
 }
 
-export function callerTextDeclinesStaffTransfer(callerText: string): boolean {
-  return /^(?:no[\s,.!?]+(?:thank you|thanks)|no|nope|not now|don't|do not|stay here|keep me here)[\s,.!?]*$/i
-    .test(callerText.trim());
+export function callerActionDeclinesStaffTransfer(result?: ModelTurnResult): boolean {
+  return result?.callerAction?.speechAct === "DECLINE"
+    && result.callerAction.workflowIntent === "TRANSFER_TO_STAFF";
 }
 
 export function callerTextAsksOfficeHours(callerText: string): boolean {
@@ -143,7 +145,7 @@ export function callerDeclinesFurtherAssistance(callerText: string, previousAssi
     return false;
   }
 
-  return /^(?:no(?:[, ]+(?:thank you|thanks))?|nothing else|that is all|that's all|i am all set|i'm all set|i am good|i'm good)[\s,.!?]*$/i
+  return /^(?:no(?:[\s,.!?]+(?:thank you|thanks))?|nothing else|that is all|that's all|i am all set|i'm all set|i am good|i'm good)[\s,.!?]*$/i
     .test(normalizedCallerText);
 }
 

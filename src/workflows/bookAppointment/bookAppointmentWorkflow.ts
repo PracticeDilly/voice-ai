@@ -1,8 +1,19 @@
 import { CallSession } from "../../calls/callSession.js";
+import { BookingWorkflowError } from "./bookingModelContract.js";
+import { logger } from "../../utils/logger.js";
 import { ModelTurnResult } from "../../conversation/modelClient.js";
 import { callerActionExplicitlyAuthorizesBooking } from "../shared/callerActionDecision.js";
+import { bookingPatientChoiceFromSpeech } from "./bookingPatientChoice.js";
 import { ConversationWorkflow, ToolPolicyDecision } from "../shared/workflowTypes.js";
 import { BookAppointmentToolAdapter } from "./bookAppointmentToolAdapter.js";
+import { BookingAppointmentTypeResolutionPort, ensureBookingAppointmentType } from "./bookingAppointmentTypeResolver.js";
+import { prepareBookingWorkflowFollowup } from "./bookingFollowupPolicy.js";
+import { callerSelectedAvailableBookingSlot } from "./bookingSlotSelection.js";
+import {
+  addDaysToBookingDate,
+  correctBookingRelativeDateMentions,
+  correctBookingWeekdayMentions
+} from "./bookingDatePreference.js";
 import {
   allNewPatientDataConfirmed,
   hasAllNewPatientData,
@@ -15,9 +26,216 @@ import {
 
 const toolAdapter = new BookAppointmentToolAdapter();
 
-export const bookAppointmentWorkflow: ConversationWorkflow = {
+function initializeNewPatientBooking(session: CallSession): void {
+  session.bookingPatientChoice = "NEW_PATIENT";
+  session.awaitingBookingPatientChoice = false;
+  session.currentIntent = "BOOK_APPOINTMENT";
+  session.newPatientBookingCandidate = true;
+  session.newPatientDataConfirmation = { confirmed: {} };
+  session.collectedFields.continueAsNewPatient = true;
+  if (session.fromNumber && !session.collectedFields.patientPhone) {
+    session.collectedFields.patientPhone = session.fromNumber;
+  }
+  session.workflowState = {
+    contractVersion: 1,
+    workflow: "BOOK_APPOINTMENT",
+    state: "NEEDS_NEW_PATIENT_DATA",
+    requiredField: "firstName",
+    allowedActions: ["BOOK_APPOINTMENT"],
+    context: { patientType: "NEW_PATIENT", patientVerified: false, canDisclosePatientData: false },
+    failureReason: null
+  };
+}
+
+export function createBookAppointmentWorkflow(
+  appointmentTypeResolution?: BookingAppointmentTypeResolutionPort
+): ConversationWorkflow {
+  return {
   name: "BOOK_APPOINTMENT",
   toolAdapter,
+  handleError(session, error) {
+    if (!(error instanceof BookingWorkflowError)) {
+      return undefined;
+    }
+    logger.warn("Booking execution requires staff handoff confirmation", {
+      callSid: session.callSid,
+      reason: error.message
+    });
+    return { staffTransferReason: "booking-workflow-failure" };
+  },
+  startNewPatientBooking(session) {
+    initializeNewPatientBooking(session);
+  },
+  handleCallerTurn(session, callerText) {
+    if (!session.awaitingBookingPatientChoice) {
+      return undefined;
+    }
+
+    const choice = bookingPatientChoiceFromSpeech(callerText);
+    if (!choice) {
+      return {
+        reply: "For this appointment, is the patient new to our office or have they visited before?",
+        source: "patient-status-clarification"
+      };
+    }
+
+    session.awaitingBookingPatientChoice = false;
+    session.bookingPatientChoice = choice;
+    if (choice === "NEW_PATIENT") {
+      initializeNewPatientBooking(session);
+    }
+
+    if (/^(?:(?:i am|i'm|we are)\s+)?(?:a\s+|an\s+)?(?:new|existing|returning|current|first[- ]time)\s+patient[.!?]*$/i.test(callerText.trim())) {
+      return {
+        reply: choice === "NEW_PATIENT"
+          ? "Great. What is the patient's first name?"
+          : "Thanks. Please say and spell the patient's first name so I can find the right record.",
+        source: "patient-status-choice"
+      };
+    }
+    return undefined;
+  },
+  handleBookingEntry(session, callerText, result) {
+    if (result.intent?.trim().toUpperCase() !== "BOOK_APPOINTMENT"
+      || !session.fromNumber
+      || session.workflowState
+      || session.bookingPatientChoice) {
+      return undefined;
+    }
+
+    session.currentIntent = "BOOK_APPOINTMENT";
+    session.collectedFields = { ...session.collectedFields, ...(result.collectedFields ?? {}) };
+    const choice = bookingPatientChoiceFromSpeech(callerText);
+    if (choice === "NEW_PATIENT") {
+      initializeNewPatientBooking(session);
+      if (typeof session.collectedFields.firstName === "string" && session.collectedFields.firstName.trim()) {
+        markNewPatientConfirmationPrompt(session, "firstName");
+      }
+      return {
+        reply: session.newPatientDataConfirmation?.prompted?.field === "firstName"
+          ? newPatientConfirmationQuestion(session, "firstName")
+          : "Great. What is the patient's first name?",
+        source: "patient-status-choice"
+      };
+    }
+    if (choice !== "RETURNING_PATIENT") {
+      session.awaitingBookingPatientChoice = true;
+      return {
+        reply: "Before we book, is the patient new to our office or have they visited before?",
+        source: "patient-status-question"
+      };
+    }
+
+    session.bookingPatientChoice = choice;
+    return !session.collectedFields.firstName
+      ? {
+        reply: "Please say and spell the patient's first name so I can find the right record.",
+        source: "returning-patient-name-prompt"
+      }
+      : undefined;
+  },
+  prepareReply(session, reply) {
+    if (session.workflowState?.workflow !== "BOOK_APPOINTMENT") {
+      return reply;
+    }
+
+    const context = session.workflowState.context;
+    const knownDates: unknown[] = [context?.slotDate];
+    if (Array.isArray(context?.slots)) {
+      knownDates.push(...context.slots.map((slot) => (
+        slot && typeof slot === "object" && !Array.isArray(slot)
+          ? (slot as { slotDate?: unknown }).slotDate
+          : undefined
+      )));
+    }
+    return correctBookingRelativeDateMentions(
+      correctBookingWeekdayMentions(reply, knownDates),
+      session.officeContext?.timezone,
+      session.startedAt
+    );
+  },
+  prepareModelResult(session, callerText, result) {
+    const previousAssistantText = [...session.transcript].reverse()
+      .find((turn) => turn.speaker === "assistant")?.text ?? "";
+    if (session.workflowState?.workflow !== "BOOK_APPOINTMENT"
+      || session.workflowState.state !== "NEEDS_SCHEDULING_PREFERENCE"
+      || !session.lastBookingSearchRange
+      || !/\b(?:next|earliest|first) available\b/i.test(previousAssistantText)
+      || !/^(?:yes|yeah|yep|sure|please|go ahead|okay|ok)[\s,.!?]*$/i.test(callerText.trim())) {
+      return result;
+    }
+
+    const fromDate = addDaysToBookingDate(session.lastBookingSearchRange.toDate, 1);
+    const toDate = addDaysToBookingDate(fromDate, 7);
+    if (!fromDate || !toDate) {
+      return result;
+    }
+
+    return {
+      intent: "BOOK_APPOINTMENT",
+      toolRequest: {
+        name: "BOOK_APPOINTMENT",
+        arguments: {
+          ...session.collectedFields,
+          datePreference: fromDate,
+          fromDate,
+          toDate,
+          callerConfirmedBooking: false
+        }
+      }
+    };
+  },
+  async prepareToolRequest(session, result) {
+    return appointmentTypeResolution
+      ? ensureBookingAppointmentType(session, result, appointmentTypeResolution)
+      : result;
+  },
+  async prepareFollowup(session, result, followups) {
+    if (!appointmentTypeResolution) {
+      return { disposition: "RETURN", result };
+    }
+    return prepareBookingWorkflowFollowup(session, result, followups, appointmentTypeResolution);
+  },
+  callerSelectedAvailableSlot(session, result) {
+    return callerSelectedAvailableBookingSlot(session, result);
+  },
+  async resolveToolResult(session, request, toolResult, context) {
+    if (!appointmentTypeResolution
+      || request.toolRequest?.name !== "BOOK_APPOINTMENT"
+      || session.workflowState?.workflow !== "BOOK_APPOINTMENT"
+      || session.workflowState.state !== "REQUIRES_CONFIRMATION") {
+      return undefined;
+    }
+
+    const requestedSlot = request.toolRequest.arguments;
+    if (context.callerSelectedAvailableSlot
+      && isSuccessfulToolResult(toolResult)
+      && session.workflowState.context?.slotDate === requestedSlot.slotDate
+      && session.workflowState.context?.slotTime === requestedSlot.slotTime) {
+      return {
+        ...request,
+        intent: "BOOK_APPOINTMENT",
+        toolRequest: {
+          ...request.toolRequest,
+          arguments: { ...requestedSlot, callerConfirmedBooking: true }
+        }
+      };
+    }
+
+    return appointmentTypeResolution.bookingResponse(session, "AWAITING_CONFIRMATION");
+  },
+  async resolvePolicyReprompt(session, context) {
+    if (!appointmentTypeResolution) {
+      return undefined;
+    }
+    if (context.type === "BOOKING_CONFIRMATION") {
+      return appointmentTypeResolution.bookingResponse(session, "AWAITING_CONFIRMATION");
+    }
+    if (context.type === "BOOKING_SLOT_REPEAT") {
+      return appointmentTypeResolution.bookingResponse(session, "REPEAT_SLOTS");
+    }
+    return undefined;
+  },
   applyTurnPolicy(session: CallSession, result: ModelTurnResult): ToolPolicyDecision | undefined {
     if (!isBookingIntent(session.currentIntent) && session.workflowState?.workflow !== "BOOK_APPOINTMENT") {
       return undefined;
@@ -89,6 +307,23 @@ export const bookAppointmentWorkflow: ConversationWorkflow = {
     };
   },
   applyToolResultPolicy(session: CallSession, toolName: string, toolResult: unknown): ToolPolicyDecision | undefined {
+    if (toolName === "BOOK_APPOINTMENT"
+      && isSuccessfulToolResult(toolResult)
+      && session.workflowState?.workflow === "BOOK_APPOINTMENT"
+      && session.workflowState.state === "COMPLETED") {
+      const slotDate = session.workflowState.context?.slotDate;
+      const slotTime = session.workflowState.context?.slotTime;
+      return {
+        overrideResult: {
+          intent: "BOOK_APPOINTMENT",
+          reply: typeof slotDate === "string" && typeof slotTime === "string"
+            ? `Your appointment is booked for ${slotDate} at ${slotTime}.`
+            : "Your appointment is booked.",
+          shouldEndCall: false
+        }
+      };
+    }
+
     if (toolName !== "BOOK_APPOINTMENT"
       || !isSuccessfulToolResult(toolResult)
       || session.workflowState?.workflow !== "BOOK_APPOINTMENT"
@@ -106,7 +341,8 @@ export const bookAppointmentWorkflow: ConversationWorkflow = {
       }
       : undefined;
   }
-};
+  };
+}
 
 function isBookingIntent(intent: string | undefined): boolean {
   return typeof intent === "string" && intent.trim().toUpperCase() === "BOOK_APPOINTMENT";

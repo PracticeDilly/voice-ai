@@ -12,12 +12,61 @@ import { ConfirmAppointmentStateView } from "./confirmAppointmentStateView.js";
 import { ConfirmAppointmentToolAdapter } from "./confirmAppointmentToolAdapter.js";
 import { createConfirmAppointmentTurnContext } from "./confirmAppointmentTurnContext.js";
 import { markConfirmAppointmentPrompted } from "./confirmAppointmentPendingAction.js";
+import { selectedConfirmAppointmentOption } from "./confirmAppointmentSelectionStore.js";
+import { invalidateAppointmentLookupCacheAfterConfirmation } from "../../appointments/appointmentLookupCache.js";
+import {
+  consumeConfirmAppointmentPendingAction,
+  hydrateConfirmAppointmentSelections,
+  promoteConfirmAppointmentPendingAction,
+  syncConfirmAppointmentFromLookup
+} from "./confirmAppointmentPendingAction.js";
 
 const toolAdapter = new ConfirmAppointmentToolAdapter();
 
 export const confirmAppointmentWorkflow: ConversationWorkflow = {
   name: "CONFIRM_APPOINTMENT",
   toolAdapter,
+  modelLifecycle: {
+    synchronizeResult(session, result) {
+      promoteConfirmAppointmentPendingAction(session, result);
+    },
+    hydrateContext(session) {
+      hydrateConfirmAppointmentSelections(session);
+    },
+    shouldContinuePolicyReprompt(session) {
+      return session.pendingActions.CONFIRM_APPOINTMENT?.status === "READY_TO_EXECUTE";
+    }
+  },
+  synchronizeToolResult(session, toolName, toolResult, activeIntent, request) {
+    syncConfirmAppointmentFromLookup(session, toolName, toolResult, activeIntent, request);
+    if (toolName === "CONFIRM_APPOINTMENT" && isSuccessfulToolResult(toolResult)) {
+      const appointment = selectedConfirmAppointmentOption(session, request.toolRequest?.arguments, request);
+      return appointment?.appointmentDate
+        ? { confirmedAppointmentDate: appointment.appointmentDate }
+        : undefined;
+    }
+    return undefined;
+  },
+  consumeToolResult(session, toolName, toolResult) {
+    consumeConfirmAppointmentPendingAction(session, toolName, toolResult);
+  },
+  invalidateToolResultCache(session, toolName, toolResult) {
+    invalidateAppointmentLookupCacheAfterConfirmation(session, toolName, toolResult);
+  },
+  async resolveToolResult(_session, request, toolResult, context) {
+    if (request.toolRequest?.name !== "CONFIRM_APPOINTMENT" || !isSuccessfulToolResult(toolResult)) {
+      return undefined;
+    }
+
+    return {
+      ...request,
+      toolRequest: undefined,
+      shouldEndCall: false,
+      reply: context.confirmedAppointmentDate
+        ? `Your appointment at ${context.confirmedAppointmentDate} has been confirmed.`
+        : "Your appointment has been confirmed successfully."
+    };
+  },
   applyTurnPolicy(session: CallSession, result: ModelTurnResult): ToolPolicyDecision | undefined {
     return applyConfirmationExecutionBoundary(session, result);
   },
