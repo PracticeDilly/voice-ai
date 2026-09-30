@@ -4,6 +4,16 @@ import test from "node:test";
 import { setImmediate } from "node:timers/promises";
 import { WebSocket } from "ws";
 
+test("allows long spoken replies to finish before the no-input silence window starts", async () => {
+  const { ConversationRelayHandler } = await import("../../src/twilio/conversationRelayHandler.js");
+  const handler = new ConversationRelayHandler();
+  const spokenReply = "I see you mentioned Thursday or Friday for your cleaning appointment. On Thursday, October 1st, we have openings starting from 1:00 AM through the evening with Henry Johnson. On Friday, October 2nd, there are available times from 10:00 AM to 7:30 PM. Do you have a preferred time on either of these days?";
+  const duration = (handler as unknown as { estimatedSpeechDurationMs(text: string): number })
+    .estimatedSpeechDurationMs(spokenReply);
+
+  assert.ok(duration >= 27_000, "a long availability reply needs enough playback time before caller silence begins");
+});
+
 test("arms no-input reprompt after externally provided welcome greeting", async () => {
   const { CallSessionStore } = await import("../../src/calls/callSession.js");
   const { ConversationRelayHandler } = await import("../../src/twilio/conversationRelayHandler.js");

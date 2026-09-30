@@ -18,6 +18,12 @@ export class BookAppointmentToolAdapter implements WorkflowToolAdapter {
 
   prepareTool(session: CallSession, tool: ToolRequest): ToolRequest {
     const preparedArguments = normalizeBookingArguments(session, tool.arguments);
+    if (session.workflowState?.workflow === "BOOK_APPOINTMENT"
+      && session.workflowState.state === "SELECT_SLOT") {
+      // The first backend call selects the slot. Finalization follows only
+      // after the backend has acknowledged its confirmation state.
+      preparedArguments.callerConfirmedBooking = false;
+    }
     logger.debug("Prepared booking tool arguments", {
       callSid: session.callSid,
       officeCode: session.officeCode,

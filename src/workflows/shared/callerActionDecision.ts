@@ -59,12 +59,17 @@ export function callerTextRequestsStaffTransfer(callerText: string): boolean {
 }
 
 export function callerTextConfirmsStaffTransfer(callerText: string): boolean {
-  return /^(?:yes|yeah|yep|yup|sure|okay|ok|please do|go ahead|that works|connect me|transfer me)[\s,.!?]*$/i
+  return /^(?:(?:yes|yeah|yep|yup|sure|okay|ok|please do|go ahead|that works|connect me|transfer me)[\s,.!?]*)+(?:please[\s,.!?]*)?$/i
     .test(callerText.trim());
 }
 
+export function assistantTextOffersStaffTransfer(assistantText: string): boolean {
+  return /\b(?:would you like|do you want|shall i|should i|may i|can i)\b[^?]{0,140}\b(?:connect|transfer)\b[^?]{0,100}\b(?:staff|representative|agent|human|someone)\b[^?]*\?/i
+    .test(assistantText);
+}
+
 export function callerTextDeclinesStaffTransfer(callerText: string): boolean {
-  return /^(?:no|nope|not now|don't|do not|no thank you|no thanks|stay here|keep me here)[\s,.!?]*$/i
+  return /^(?:no[\s,.!?]+(?:thank you|thanks)|no|nope|not now|don't|do not|stay here|keep me here)[\s,.!?]*$/i
     .test(callerText.trim());
 }
 

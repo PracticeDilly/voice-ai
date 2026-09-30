@@ -261,6 +261,28 @@ test("rejects final booking before backend confirmation state", () => {
   assert.match(error ?? "", /backend has returned a booking confirmation step/);
 });
 
+test("selects a returned slot before sending final booking approval", () => {
+  const callSession = session();
+  callSession.workflowState = {
+    contractVersion: 1,
+    workflow: "BOOK_APPOINTMENT",
+    state: "SELECT_SLOT",
+    context: { slots: [{ slotDate: "10/02/2026", slotTime: "04:30 PM" }] }
+  };
+  const adapter = new BookAppointmentToolAdapter();
+  const prepared = adapter.prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: {
+      slotDate: "10/02/2026",
+      slotTime: "04:30 PM",
+      callerConfirmedBooking: true
+    }
+  });
+
+  assert.equal(prepared.arguments.callerConfirmedBooking, false);
+  assert.equal(adapter.validateTool(callSession, prepared), undefined);
+});
+
 test("allows final booking after backend confirmation state with selected slot", () => {
   const callSession = session();
   callSession.workflowState = {

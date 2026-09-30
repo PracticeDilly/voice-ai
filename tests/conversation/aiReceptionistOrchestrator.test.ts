@@ -213,6 +213,65 @@ test("asks for confirmation before transferring an explicit staff request", asyn
   assert.equal(outcome.handoffData?.reasonCode, "live-agent-handoff");
 });
 
+test("transfers after a model offered staff and the caller says Yeah. Sure.", async () => {
+  const sessions = new CallSessionStore();
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  const session = sessions.create({ callSid: "CA-insurance-transfer", officeCode: "TEST" });
+  let modelTurns = 0;
+  let transfers = 0;
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      modelTurns += 1;
+      return {
+        intent: "insurance_questions",
+        reply: "I don't have the specific list of insurance plans supported by our office. Would you like me to connect you with a staff member who can provide that information?"
+      };
+    }
+  } });
+  Object.defineProperty(orchestrator, "toolExecutor", { value: {
+    async execute() {
+      transfers += 1;
+      return { name: "TRANSFER_TO_STAFF", ok: true };
+    }
+  } });
+
+  const offer = await orchestrator.handleCallerText(session, "What insurances are supported?", { recordCallerTurn: false });
+  assert.equal(offer.shouldTransferToStaff, false);
+  assert.equal(session.pendingActions.TRANSFER_TO_STAFF?.status, "AWAITING_CALLER_CONFIRMATION");
+
+  const outcome = await orchestrator.handleCallerText(session, "Yeah. Sure.", { recordCallerTurn: false });
+  assert.equal(modelTurns, 1);
+  assert.equal(transfers, 1);
+  assert.equal(outcome.shouldTransferToStaff, true);
+  assert.equal(outcome.shouldEndSession, true);
+  assert.equal(session.pendingActions.TRANSFER_TO_STAFF, undefined);
+});
+
+test("clears a model offered transfer when the caller declines", async () => {
+  const sessions = new CallSessionStore();
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  const session = sessions.create({ callSid: "CA-insurance-no-transfer", officeCode: "TEST" });
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      return {
+        intent: "insurance_questions",
+        reply: "Would you like me to connect you with our office staff?"
+      };
+    }
+  } });
+  Object.defineProperty(orchestrator, "toolExecutor", { value: {
+    async execute() {
+      throw new Error("a declined transfer must not execute");
+    }
+  } });
+
+  await orchestrator.handleCallerText(session, "Can you help with insurance?", { recordCallerTurn: false });
+  const outcome = await orchestrator.handleCallerText(session, "No, thanks.", { recordCallerTurn: false });
+  assert.match(outcome.reply, /won't transfer/i);
+  assert.equal(outcome.shouldTransferToStaff, false);
+  assert.equal(session.pendingActions.TRANSFER_TO_STAFF, undefined);
+});
+
 test("returns a response when patient verification tools recurse repeatedly", async () => {
   const sessions = new CallSessionStore();
   const orchestrator = new AiReceptionistOrchestrator(sessions);
@@ -361,6 +420,106 @@ test("treats a caller's time-slot selection as a selection, not a repeat-times r
 
   assert.equal(executed.length, 1);
   assert.match(outcome.reply, /go ahead and book/i);
+});
+
+test("books the selected slot in one caller turn after an explicit appointment request", async () => {
+  const sessions = new CallSessionStore();
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  const session = sessions.create({ callSid: "CA-book-selected-slot", officeCode: "TEST" });
+  session.currentIntent = "BOOK_APPOINTMENT";
+  session.workflowState = {
+    contractVersion: 1,
+    workflow: "BOOK_APPOINTMENT",
+    state: "SELECT_SLOT",
+    context: { slots: [{ slotDate: "10/02/2026", slotTime: "04:30 PM" }] }
+  };
+  await orchestrator.recordCallerTurn(session, "I wanted to book an appointment.");
+  const executed: ToolRequest[] = [];
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      return {
+        intent: "BOOK_APPOINTMENT",
+        toolRequest: {
+          name: "BOOK_APPOINTMENT",
+          arguments: { slotDate: "10/02/2026", slotTime: "04:30 PM", callerConfirmedBooking: true }
+        }
+      };
+    },
+    async bookingResponse() {
+      throw new Error("slot selection already authorized booking");
+    },
+    async continueWithToolResult() {
+      throw new Error("completed booking should use the backend result");
+    }
+  } });
+  Object.defineProperty(orchestrator, "toolExecutor", { value: {
+    async execute(_session: CallSession, tool: ToolRequest) {
+      executed.push(tool);
+      return {
+        name: tool.name,
+        ok: true,
+        workflowState: {
+          contractVersion: 1,
+          workflow: "BOOK_APPOINTMENT",
+          state: executed.length === 1 ? "REQUIRES_CONFIRMATION" : "COMPLETED",
+          context: { slotDate: "10/02/2026", slotTime: "04:30 PM" }
+        }
+      };
+    }
+  } });
+
+  const outcome = await orchestrator.handleCallerText(session, "Okay. So the 04:30PM sounds good to me.");
+
+  assert.equal(executed.length, 2);
+  assert.equal(executed[1].arguments.callerConfirmedBooking, true);
+  assert.match(outcome.reply, /appointment is booked for 10\/02\/2026 at 04:30 PM/i);
+  assert.equal(outcome.shouldTransferToStaff, false);
+});
+
+test("does not auto-book a different slot than the one the caller named", async () => {
+  const sessions = new CallSessionStore();
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  const session = sessions.create({ callSid: "CA-slot-mismatch", officeCode: "TEST" });
+  session.currentIntent = "BOOK_APPOINTMENT";
+  session.workflowState = {
+    contractVersion: 1,
+    workflow: "BOOK_APPOINTMENT",
+    state: "SELECT_SLOT",
+    context: { slots: [
+      { slotDate: "10/02/2026", slotTime: "04:30 PM" },
+      { slotDate: "10/02/2026", slotTime: "05:00 PM" }
+    ] }
+  };
+  await orchestrator.recordCallerTurn(session, "I want to book an appointment.");
+  let executions = 0;
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      return {
+        intent: "BOOK_APPOINTMENT",
+        toolRequest: { name: "BOOK_APPOINTMENT", arguments: {
+          slotDate: "10/02/2026", slotTime: "05:00 PM", callerConfirmedBooking: true
+        } }
+      };
+    },
+    async bookingResponse() {
+      return { intent: "BOOK_APPOINTMENT", reply: "Please confirm the selected time." };
+    }
+  } });
+  Object.defineProperty(orchestrator, "toolExecutor", { value: {
+    async execute() {
+      executions += 1;
+      return { name: "BOOK_APPOINTMENT", ok: true, workflowState: {
+        contractVersion: 1,
+        workflow: "BOOK_APPOINTMENT",
+        state: "REQUIRES_CONFIRMATION",
+        context: { slotDate: "10/02/2026", slotTime: "05:00 PM" }
+      } };
+    }
+  } });
+
+  const outcome = await orchestrator.handleCallerText(session, "4:30 sounds good to me.");
+  assert.equal(executions, 1);
+  assert.match(outcome.reply, /confirm the selected time/i);
 });
 
 function bookingHarness(followups: ModelTurnResult[], states: string[]) {

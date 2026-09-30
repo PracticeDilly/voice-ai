@@ -723,7 +723,9 @@ export class ConversationRelayHandler {
 
   private estimatedSpeechDurationMs(text: string): number {
     const words = text.trim().split(/\s+/).filter(Boolean).length;
-    return Math.max(1500, words * 360 + 600);
+    // ConversationRelay does not report when TTS playback ends. Budget for
+    // a slower spoken rate and startup latency before counting caller silence.
+    return Math.max(2000, words * 500 + 1500);
   }
 
   private scheduleProcessingAcknowledgement(

@@ -34,6 +34,7 @@ test("builds a compact workflow-oriented prompt", () => {
   assert.match(prompt, /Never submit BOOK_APPOINTMENT with a missing, null, string-valued, or cross-category appointmentTypeId/i);
   assert.match(prompt, /present directly inside toolRequest\.arguments/i);
   assert.match(prompt, /A reply such as yes, please, or okay does not contain a date/i);
+  assert.match(prompt, /Node will complete the booking after the backend accepts the slot; do not ask another permission question/i);
   assert.match(prompt, /office context as a closed-world source of truth/i);
   assert.match(prompt, /do not guess, infer, or use general knowledge/i);
   assert.match(prompt, /never present an absent or ambiguous office fact as true/i);
