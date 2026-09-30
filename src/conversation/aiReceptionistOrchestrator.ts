@@ -24,6 +24,7 @@ import {
   callerTextDeclinesStaffTransfer,
   callerTextAsksOfficeHours,
   callerExplicitlyEndsCall,
+  callerDeclinesFurtherAssistance,
   callerTextRequestsStaffTransfer,
   callerTextExplicitlyContinuesAsNewPatient
 } from "../workflows/shared/callerActionDecision.js";
@@ -205,6 +206,17 @@ export class AiReceptionistOrchestrator {
         reply: "Would you like me to transfer you to our office staff? Please say yes or no.",
         assistantMetadata: { intent: "TRANSFER_TO_STAFF", source: "transfer-confirmation" },
         shouldEndSession: false,
+        shouldTransferToStaff: false
+      };
+    }
+
+    const previousAssistantTextForClosing = [...session.transcript].reverse()
+      .find((turn) => turn.speaker === "assistant")?.text ?? "";
+    if (callerDeclinesFurtherAssistance(callerText, previousAssistantTextForClosing)) {
+      return {
+        reply: "Thank you for calling. Have a great day!",
+        assistantMetadata: { intent: "GOODBYE", source: "caller-declined-further-assistance" },
+        shouldEndSession: true,
         shouldTransferToStaff: false
       };
     }

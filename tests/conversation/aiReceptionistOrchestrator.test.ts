@@ -89,6 +89,26 @@ test("does not end or transfer a caller who only questions a failed lookup", asy
   assert.equal(outcome.shouldTransferToStaff, false);
 });
 
+test("ends after the caller declines further help following the receptionist's closing question", async () => {
+  const sessions = new CallSessionStore();
+  const session = sessions.create({ callSid: "CA-closing-no-thanks", officeCode: "TEST" });
+  session.transcript.push({
+    speaker: "assistant",
+    text: "Is there anything else I can help you with?",
+    at: "2026-09-30T00:00:00.000Z"
+  });
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() { throw new Error("closing response should be handled deterministically"); }
+  } });
+
+  const outcome = await orchestrator.handleCallerText(session, "No. Thank you.", { recordCallerTurn: false });
+
+  assert.equal(outcome.shouldEndSession, true);
+  assert.equal(outcome.shouldTransferToStaff, false);
+  assert.match(outcome.reply, /thank you for calling/i);
+});
+
 test("executes a booking tool returned by the follow-up model instead of leaving the caller waiting", async () => {
   const { orchestrator, session, executed } = bookingHarness([
     { intent: "BOOK_APPOINTMENT", toolRequest: { name: "BOOK_APPOINTMENT", arguments: { dob: "04/01/2000" } } },

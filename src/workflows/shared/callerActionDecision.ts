@@ -134,6 +134,19 @@ export function callerExplicitlyEndsCall(callerText: string): boolean {
     || /^(?:goodbye|bye|that's all|that is all)[\s,.!?]*$/i.test(callerText.trim());
 }
 
+export function callerDeclinesFurtherAssistance(callerText: string, previousAssistantText: string): boolean {
+  const normalizedCallerText = callerText.trim().toLocaleLowerCase();
+  const assistantAskedForMoreHelp = /\b(?:anything else|anything more|any further (?:help|assistance)|anything i can help you with)\b/i
+    .test(previousAssistantText);
+
+  if (!assistantAskedForMoreHelp) {
+    return false;
+  }
+
+  return /^(?:no(?:[, ]+(?:thank you|thanks))?|nothing else|that is all|that's all|i am all set|i'm all set|i am good|i'm good)[\s,.!?]*$/i
+    .test(normalizedCallerText);
+}
+
 export function callerActionIsConfirmationQuestion(result: ModelTurnResult): boolean {
   return result.callerAction?.speechAct === "QUESTION"
     && (
