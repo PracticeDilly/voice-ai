@@ -66,7 +66,8 @@ test("bounds repeated follow-up tool requests", async () => {
   const { orchestrator, session, executed } = bookingHarness([followup, followup, followup], ["NEEDS_PATIENT_IDENTITY"]);
   const outcome = await orchestrator.handleCallerText(session, "Book it", { recordCallerTurn: false });
   assert.equal(executed.length, 3);
-  assert.equal(outcome.shouldTransferToStaff, true);
+  assert.equal(outcome.shouldTransferToStaff, false);
+  assert.equal(session.pendingActions.TRANSFER_TO_STAFF?.status, "AWAITING_CALLER_CONFIRMATION");
 });
 
 test("asks for a new date instead of repeating a no-opening search", async () => {
@@ -91,7 +92,8 @@ test("contract repair exhaustion hands off without the booking policy issuing an
   } });
   const outcome = await orchestrator.handleCallerText(session, "Book it", { recordCallerTurn: false });
   assert.equal(executed.length, 0);
-  assert.equal(outcome.shouldTransferToStaff, true);
+  assert.equal(outcome.shouldTransferToStaff, false);
+  assert.equal(session.pendingActions.TRANSFER_TO_STAFF?.status, "AWAITING_CALLER_CONFIRMATION");
 });
 
 test("does not transfer when identity policy suppresses an inferred transfer", async () => {
@@ -178,7 +180,7 @@ test("ends the call deterministically when the caller asks to drop it", async ()
   assert.match(outcome.reply, /end the call/i);
 });
 
-test("transfers an explicit staff request without another model turn", async () => {
+test("asks for confirmation before transferring an explicit staff request", async () => {
   const sessions = new CallSessionStore();
   const orchestrator = new AiReceptionistOrchestrator(sessions);
   const session = sessions.create({ callSid: "CA-direct-staff", officeCode: "TEST" });
@@ -193,12 +195,18 @@ test("transfers an explicit staff request without another model turn", async () 
     }
   } });
 
-  const outcome = await orchestrator.handleCallerText(
+  const offer = await orchestrator.handleCallerText(
     session,
     "I want to talk to the office staff.",
     { recordCallerTurn: false }
   );
 
+  assert.equal(offer.shouldEndSession, false);
+  assert.equal(offer.shouldTransferToStaff, false);
+  assert.match(offer.reply, /would you like me to transfer/i);
+  assert.equal(session.pendingActions.TRANSFER_TO_STAFF?.status, "AWAITING_CALLER_CONFIRMATION");
+
+  const outcome = await orchestrator.handleCallerText(session, "Yes, please.", { recordCallerTurn: false });
   assert.equal(outcome.shouldEndSession, true);
   assert.equal(outcome.shouldTransferToStaff, true);
   assert.match(outcome.reply, /office staff/i);
@@ -254,7 +262,7 @@ test("returns a response when patient verification tools recurse repeatedly", as
   assert.equal(outcome.shouldTransferToStaff, false);
 });
 
-test("executes a staff transfer once and does not recurse through the tool result", async () => {
+test("requires confirmation before executing a model-requested staff transfer", async () => {
   const sessions = new CallSessionStore();
   const orchestrator = new AiReceptionistOrchestrator(sessions);
   const session = sessions.create({ callSid: "CA-transfer-terminal", officeCode: "TEST" });
@@ -279,12 +287,18 @@ test("executes a staff transfer once and does not recurse through the tool resul
     }
   } });
 
-  const outcome = await orchestrator.handleCallerText(session, "Please connect me with the office staff.", { recordCallerTurn: false });
+  const offer = await orchestrator.handleCallerText(session, "I need help from the office.", { recordCallerTurn: false });
 
+  assert.equal(executed.length, 0);
+  assert.equal(offer.shouldEndSession, false);
+  assert.equal(offer.shouldTransferToStaff, false);
+  assert.match(offer.reply, /would you like me to transfer/i);
+
+  const outcome = await orchestrator.handleCallerText(session, "Yes.", { recordCallerTurn: false });
   assert.equal(executed.length, 1);
   assert.equal(outcome.shouldEndSession, true);
   assert.equal(outcome.shouldTransferToStaff, true);
-  assert.equal(outcome.reply, "I will connect you with the office staff now.");
+  assert.equal(outcome.reply, "I will connect you with our office staff now.");
 });
 
 test("treats a caller's time-slot selection as a selection, not a repeat-times request", async () => {

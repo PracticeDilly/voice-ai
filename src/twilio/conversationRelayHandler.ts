@@ -29,7 +29,6 @@ interface PromptProcessingContext {
   setNoInputTimer: (timer: ReturnType<typeof setTimeout> | undefined) => void;
   getNoInputCount: () => number;
   setNoInputCount: (value: number) => void;
-  getAssistantBusy: () => boolean;
   clearPendingPrompts: () => void;
   setEndingSession: (value: boolean) => void;
 }
@@ -111,7 +110,6 @@ export class ConversationRelayHandler {
             setNoInputCount: (value) => {
               noInputCount = value;
             },
-            getAssistantBusy: () => processingPrompt,
             clearPendingPrompts: () => {
               pendingPromptParts = [];
               pendingPromptTimer = this.clearTimer(pendingPromptTimer);
@@ -181,7 +179,6 @@ export class ConversationRelayHandler {
               },
               latestObservedInputVersion,
               () => latestObservedInputVersion,
-              () => processingPrompt,
               (value) => {
                 endingSession = value;
               }
@@ -201,7 +198,6 @@ export class ConversationRelayHandler {
               },
               latestObservedInputVersion,
               () => latestObservedInputVersion,
-              () => processingPrompt,
               (value) => {
                 endingSession = value;
               }
@@ -479,7 +475,6 @@ export class ConversationRelayHandler {
       context.setNoInputTimer,
       context.expectedObservedInputVersion,
       context.getLatestObservedInputVersion,
-      context.getAssistantBusy,
       context.setEndingSession
     ));
 
@@ -598,7 +593,6 @@ export class ConversationRelayHandler {
     setNoInputTimer: (timer: ReturnType<typeof setTimeout> | undefined) => void,
     expectedInputVersion: number,
     getLatestInputVersion: () => number,
-    getAssistantBusy: () => boolean = () => false,
     setEndingSession: (value: boolean) => void = () => undefined
   ): ReturnType<typeof setTimeout> {
     this.clearTimer(existingTimer);
@@ -619,7 +613,6 @@ export class ConversationRelayHandler {
         setNoInputTimer,
         expectedInputVersion,
         getLatestInputVersion,
-        getAssistantBusy,
         setEndingSession
       );
     }, delayMs);
@@ -633,7 +626,6 @@ export class ConversationRelayHandler {
     setNoInputTimer: (timer: ReturnType<typeof setTimeout> | undefined) => void,
     expectedInputVersion: number,
     getLatestInputVersion: () => number,
-    getAssistantBusy: () => boolean = () => false,
     setEndingSession: (value: boolean) => void = () => undefined
   ): Promise<void> {
     const isCurrent = (): boolean => ws.readyState === WebSocket.OPEN
@@ -648,27 +640,6 @@ export class ConversationRelayHandler {
       return;
     }
 
-    if (getAssistantBusy()) {
-      logger.info("Deferring no-input timeout while assistant is processing", {
-        callSid: session.callSid,
-        noInputCount
-      });
-      setNoInputTimer(setTimeout(() => {
-        void this.handleNoInputTimeout(
-          session,
-          ws,
-          noInputCount,
-          setNoInputCount,
-          setNoInputTimer,
-          expectedInputVersion,
-          getLatestInputVersion,
-          getAssistantBusy,
-          setEndingSession
-        );
-      }, 500));
-      return;
-    }
-
     if (noInputCount < config.AI_MAX_NO_INPUT_REPROMPTS) {
       const reprompt = noInputCount === 0
         ? "I'm still here whenever you're ready."
@@ -680,13 +651,12 @@ export class ConversationRelayHandler {
       });
       setNoInputCount(attempt);
       await setImmediate();
-      if (!isCurrent() || getAssistantBusy()) {
+      if (!isCurrent()) {
         logger.info("Suppressing no-input reprompt after caller activity", {
           callSid: session.callSid,
           attempt,
           expectedInputVersion,
-          latestInputVersion: getLatestInputVersion(),
-          assistantBusy: getAssistantBusy()
+          latestInputVersion: getLatestInputVersion()
         });
         return;
       }
@@ -709,7 +679,6 @@ export class ConversationRelayHandler {
         setNoInputTimer,
         expectedInputVersion,
         getLatestInputVersion,
-        getAssistantBusy,
         setEndingSession
       ));
       return;

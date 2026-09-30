@@ -18,6 +18,8 @@ import { prepareBookingFollowup } from "../workflows/bookAppointment/bookingFoll
 import { bookingReason, isEligibleAppointmentTypeId } from "../workflows/bookAppointment/appointmentTypeSelection.js";
 import {
   callerActionRequestsStaffTransfer,
+  callerTextConfirmsStaffTransfer,
+  callerTextDeclinesStaffTransfer,
   callerTextAsksOfficeHours,
   callerExplicitlyEndsCall,
   callerTextRequestsStaffTransfer,
@@ -83,18 +85,12 @@ export class AiReceptionistOrchestrator {
   }
 
   private async bookingHandoff(session: CallSession, error: BookingWorkflowError): Promise<ConversationTurnOutcome> {
-    logger.warn("Booking execution stopped; transferring to staff", { callSid: session.callSid, reason: error.message });
-    const reply = (await this.modelClient.bookingResponse(session, "HANDOFF")).reply!;
-    return {
-      reply,
-      shouldEndSession: true,
-      shouldTransferToStaff: true,
-      assistantMetadata: { intent: "TRANSFER_TO_STAFF" },
-      handoffData: { reasonCode: "booking-workflow-failure", officeCode: session.officeCode, callSid: session.callSid }
-    };
+    logger.warn("Booking execution requires staff handoff confirmation", { callSid: session.callSid, reason: error.message });
+    return this.offerStaffTransfer(session, "booking-workflow-failure");
   }
 
   private async directStaffTransfer(session: CallSession): Promise<ConversationTurnOutcome> {
+    delete session.pendingActions.TRANSFER_TO_STAFF;
     const toolRequest = { name: "TRANSFER_TO_STAFF", arguments: {} } as const;
     const toolResult = await this.tryExecuteTool(session, toolRequest);
     session.lastToolResults[toolRequest.name] = toolResult;
@@ -124,6 +120,20 @@ export class AiReceptionistOrchestrator {
     };
   }
 
+  private offerStaffTransfer(session: CallSession, reason: string): ConversationTurnOutcome {
+    session.pendingActions.TRANSFER_TO_STAFF = {
+      status: "AWAITING_CALLER_CONFIRMATION",
+      reason,
+      createdAt: new Date().toISOString()
+    };
+    return {
+      reply: "I can connect you with our office staff. Would you like me to transfer you now?",
+      shouldEndSession: false,
+      shouldTransferToStaff: false,
+      assistantMetadata: { intent: "TRANSFER_TO_STAFF", source: "transfer-confirmation" }
+    };
+  }
+
   private async processCallerText(
     session: CallSession,
     callerText: string,
@@ -145,8 +155,29 @@ export class AiReceptionistOrchestrator {
       };
     }
 
+    if (session.pendingActions.TRANSFER_TO_STAFF) {
+      if (callerTextConfirmsStaffTransfer(callerText)) {
+        return this.directStaffTransfer(session);
+      }
+      if (callerTextDeclinesStaffTransfer(callerText)) {
+        delete session.pendingActions.TRANSFER_TO_STAFF;
+        return {
+          reply: "Okay, I won't transfer you. How else may I help?",
+          assistantMetadata: { intent: session.currentIntent ?? "UNKNOWN", source: "transfer-declined" },
+          shouldEndSession: false,
+          shouldTransferToStaff: false
+        };
+      }
+      return {
+        reply: "Would you like me to transfer you to our office staff? Please say yes or no.",
+        assistantMetadata: { intent: "TRANSFER_TO_STAFF", source: "transfer-confirmation" },
+        shouldEndSession: false,
+        shouldTransferToStaff: false
+      };
+    }
+
     if (callerTextRequestsStaffTransfer(callerText)) {
-      return this.directStaffTransfer(session);
+      return this.offerStaffTransfer(session, "caller-request");
     }
 
     if (callerTextAsksOfficeHours(callerText)) {
@@ -279,6 +310,10 @@ export class AiReceptionistOrchestrator {
     constrainNewPatientDataUpdates(session, result);
     if (!result.toolRequest) {
       return result;
+    }
+
+    if (result.toolRequest.name === "TRANSFER_TO_STAFF") {
+      return this.offerStaffTransfer(session, "model-or-workflow-request");
     }
 
     if (result.toolRequest.name === "BOOK_APPOINTMENT") {

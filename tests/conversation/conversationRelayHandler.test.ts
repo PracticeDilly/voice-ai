@@ -137,6 +137,59 @@ test("suppresses a stale no-input timeout after caller activity", async () => {
   assert.deepEqual(ws.sentMessages, []);
 });
 
+test("does not defer a valid no-input reprompt just because model processing ended", async () => {
+  const { CallSessionStore } = await import("../../src/calls/callSession.js");
+  const { ConversationRelayHandler } = await import("../../src/twilio/conversationRelayHandler.js");
+  const ws = new FakeWebSocket();
+  const sessions = new CallSessionStore();
+  const session = sessions.create({
+    callSid: "CA-no-input-after-processing",
+    officeCode: "MSHNN"
+  });
+  const handler = new ConversationRelayHandler();
+  let armedTimer: ReturnType<typeof setTimeout> | undefined;
+
+  (handler as unknown as {
+    orchestrator: {
+      recordAssistantTurn(): Promise<void>;
+    };
+  }).orchestrator = {
+    async recordAssistantTurn() {}
+  };
+
+  await (handler as unknown as {
+    handleNoInputTimeout(
+      session: typeof session,
+      ws: WebSocket,
+      noInputCount: number,
+      setNoInputCount: (value: number) => void,
+      setNoInputTimer: (timer: ReturnType<typeof setTimeout> | undefined) => void,
+      expectedInputVersion: number,
+      getLatestInputVersion: () => number
+    ): Promise<void>;
+  }).handleNoInputTimeout(
+    session,
+    ws as unknown as WebSocket,
+    0,
+    () => undefined,
+    (timer) => {
+      armedTimer = timer;
+    },
+    0,
+    () => 0
+  );
+
+  assert.deepEqual(ws.sentMessages, [{
+    type: "text",
+    token: "I'm still here whenever you're ready.",
+    last: true
+  }]);
+
+  if (armedTimer) {
+    clearTimeout(armedTimer);
+  }
+});
+
 class FakeWebSocket extends EventEmitter {
   readyState = WebSocket.OPEN;
   sentMessages: unknown[] = [];

@@ -6,7 +6,7 @@ import {
   callerActionRequestsStaffTransfer
 } from "./callerActionDecision.js";
 import { ConversationWorkflow, ToolPolicyDecision, WorkflowToolAdapter } from "./workflowTypes.js";
-import { newPatientConfirmationFields } from "./newPatientDataConfirmation.js";
+import { newPatientDataFields } from "./newPatientDataConfirmation.js";
 
 const patientSpecificTools = new Set([
   "GET_NEXT_APPOINTMENT",
@@ -414,7 +414,7 @@ function continueAsNewPatientBooking(session: CallSession, result: ModelTurnResu
     contractVersion: session.workflowState?.contractVersion ?? 1,
     workflow: "BOOK_APPOINTMENT",
     state: "NEEDS_NEW_PATIENT_DATA",
-    requiredField: newPatientConfirmationFields.find((field) => (
+    requiredField: newPatientDataFields.find((field) => (
       !textValue(session.collectedFields[field])
       && !(field === "patientPhone" && textValue(session.fromNumber))
     )) ?? null,
@@ -475,12 +475,20 @@ function isTransferResult(result: ModelTurnResult): boolean {
 }
 
 function transferConfirmationDecision(session: CallSession): ToolPolicyDecision {
+  const askingNewPatientChoice = isNewPatientConfirmationState(session) && isBookingIntent(session.currentIntent);
+  if (!askingNewPatientChoice) {
+    session.pendingActions.TRANSFER_TO_STAFF = {
+      status: "AWAITING_CALLER_CONFIRMATION",
+      reason: "patient-verification-handoff",
+      createdAt: new Date().toISOString()
+    };
+  }
   return {
-    instruction: isNewPatientConfirmationState(session) && isBookingIntent(session.currentIntent)
+    instruction: askingNewPatientChoice
       ? "Do not transfer yet. Tell the caller that no existing patient record was found and ask whether they want to continue as a new patient or speak with office staff. Do not collect new-patient fields until they explicitly choose the new-patient option."
       : "Do not transfer yet. Explain the verification issue and ask whether the caller would like to speak with office staff. Transfer only after an explicit yes or direct request.",
     repromptContext: {
-      type: isNewPatientConfirmationState(session) && isBookingIntent(session.currentIntent)
+      type: askingNewPatientChoice
         ? "NEW_PATIENT_CONFIRMATION"
         : "IDENTITY_CORRECTION"
     }

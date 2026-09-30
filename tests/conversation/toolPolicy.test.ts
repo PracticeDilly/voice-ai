@@ -226,8 +226,9 @@ test("requires explicit consent before continuing as a new patient", () => {
     }
   });
 
-  assert.equal(decision?.overrideResult?.toolRequest?.name, "BOOK_APPOINTMENT");
-  assert.equal(decision?.overrideResult?.toolRequest?.arguments.continueAsNewPatient, true);
+  assert.equal(decision?.overrideResult?.toolRequest, undefined);
+  assert.equal(call.workflowState?.workflow, "BOOK_APPOINTMENT");
+  assert.equal(call.workflowState?.state, "NEEDS_NEW_PATIENT_DATA");
   assert.equal(call.newPatientBookingCandidate, true);
   assert.equal(call.collectedFields.continueAsNewPatient, true);
 });
@@ -271,8 +272,9 @@ test("starts new-patient booking directly after explicit consent following an id
     }
   });
 
-  assert.equal(decision?.overrideResult?.toolRequest?.name, "BOOK_APPOINTMENT");
-  assert.equal(decision?.overrideResult?.toolRequest?.arguments.continueAsNewPatient, true);
+  assert.equal(decision?.overrideResult?.toolRequest, undefined);
+  assert.equal(call.workflowState?.workflow, "BOOK_APPOINTMENT");
+  assert.equal(call.workflowState?.state, "NEEDS_NEW_PATIENT_DATA");
   assert.equal(call.newPatientBookingCandidate, true);
   assert.equal(call.pendingActions.VERIFY_PATIENT_IDENTITY, undefined);
 });
@@ -378,7 +380,7 @@ test("prioritizes a corrected first name over an inferred transfer", () => {
   assert.equal(decision?.overrideResult?.toolRequest?.arguments.firstName, "Mary");
 });
 
-test("does not retry the same identity value after a first-name mismatch", () => {
+test("stops retrying the same identity value after a first-name mismatch", () => {
   const call = session({
     currentIntent: "BOOK_APPOINTMENT",
     collectedFields: { firstName: "Nancy" },
@@ -407,7 +409,7 @@ test("does not retry the same identity value after a first-name mismatch", () =>
   });
 
   assert.equal(decision?.overrideResult?.toolRequest, undefined);
-  assert.match(decision?.overrideResult?.reply ?? "", /spell your first name/i);
+  assert.match(decision?.overrideResult?.reply ?? "", /continue as a new patient or speak with office staff/i);
 });
 
 test("stops repeated DOB correction prompts and asks for a bounded next step", () => {

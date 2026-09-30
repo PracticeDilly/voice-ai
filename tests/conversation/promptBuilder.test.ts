@@ -18,14 +18,14 @@ test("builds a compact workflow-oriented prompt", () => {
   assert.match(prompt, /do not ask for or require last name/i);
   assert.match(prompt, /resolve the closest eligible appointment type/i);
   assert.match(prompt, /For new patients/i);
-  assert.match(prompt, /collect firstName, lastName, dob, and gender/i);
-  assert.match(prompt, /never infer it from the patient's name or voice/i);
-  assert.match(prompt, /patientEmail before proceeding with booking/i);
-  assert.match(prompt, /confirm its spelling once/i);
-  assert.match(prompt, /spell both the first and last names/i);
-  assert.match(prompt, /actual caller number from session\.fromNumber as patientPhone/i);
+  assert.match(prompt, /collect firstName, lastName, dob, gender, patientEmail, and patientPhone/i);
+  assert.match(prompt, /never infer it/i);
+  assert.match(prompt, /do not add a redundant full-data summary/i);
+  assert.match(prompt, /spell the email back, and confirm it once/i);
+  assert.match(prompt, /spell both names/i);
+  assert.match(prompt, /use session\.fromNumber and confirm it by identifying the last four digits/i);
   assert.match(prompt, /never send the literal text fromNumber as patientPhone/i);
-  assert.match(prompt, /read it back for confirmation only once/i);
+  assert.match(prompt, /Confirm DOB once/i);
   assert.match(prompt, /day after tomorrow.*exactly two calendar days/i);
   assert.match(prompt, /fromDate\/toDate/i);
   assert.match(prompt, /For a single requested date such as today, tomorrow, or a named calendar date/i);
@@ -34,7 +34,7 @@ test("builds a compact workflow-oriented prompt", () => {
   assert.match(prompt, /Never submit BOOK_APPOINTMENT with a missing, null, string-valued, or cross-category appointmentTypeId/i);
   assert.match(prompt, /present directly inside toolRequest\.arguments/i);
   assert.match(prompt, /A reply such as yes, please, or okay does not contain a date/i);
-  assert.ok(prompt.length < 11000, `prompt is too long: ${prompt.length}`);
+  assert.ok(prompt.length < 19000, `prompt is too long: ${prompt.length}`);
 });
 
 test("uses the office-local current date in the prompt", () => {

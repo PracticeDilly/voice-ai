@@ -8,9 +8,7 @@ import {
   hasAllNewPatientData,
   isNewPatientBooking,
   markNewPatientConfirmationPrompt,
-  markNewPatientSummaryPrompt,
   newPatientConfirmationQuestion,
-  newPatientSummaryQuestion,
   pendingNewPatientConfirmation
 } from "../shared/newPatientDataConfirmation.js";
 
@@ -134,31 +132,6 @@ function newPatientDataConfirmationDecision(
         ...result,
         intent: "BOOK_APPOINTMENT",
         reply: newPatientConfirmationQuestion(session, pendingField),
-        toolRequest: undefined,
-        shouldEndCall: false
-      }
-    };
-  }
-
-  if (hasAllNewPatientData(session) && !allNewPatientDataConfirmed(session)) {
-    if (session.newPatientDataConfirmation?.summaryAwaitingCorrection) {
-      return {
-        overrideResult: {
-          ...result,
-          intent: "BOOK_APPOINTMENT",
-          reply: "Which patient detail would you like to correct?",
-          toolRequest: undefined,
-          shouldEndCall: false
-        }
-      };
-    }
-
-    markNewPatientSummaryPrompt(session);
-    return {
-      overrideResult: {
-        ...result,
-        intent: "BOOK_APPOINTMENT",
-        reply: newPatientSummaryQuestion(session),
         toolRequest: undefined,
         shouldEndCall: false
       }

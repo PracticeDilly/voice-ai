@@ -54,7 +54,7 @@ export class BookAppointmentToolAdapter implements WorkflowToolAdapter {
         return "BOOK_APPOINTMENT requires all new-patient details before execution. Ask only for the missing detail.";
       }
       if (!allNewPatientDataConfirmed(session)) {
-        return "BOOK_APPOINTMENT requires explicit confirmation of all new-patient data before execution.";
+        return "BOOK_APPOINTMENT requires confirmation of the patient's name, date of birth, email, and phone before execution.";
       }
     }
     if (session.officeContext && !isEligibleAppointmentTypeId(session, appointmentTypeId)) {

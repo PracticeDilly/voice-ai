@@ -58,6 +58,16 @@ export function callerTextRequestsStaffTransfer(callerText: string): boolean {
     || /\b(?:office staff|live agent|representative|human|someone)\b.{0,40}\b(?:talk|speak|connect|transfer)\b/.test(normalized);
 }
 
+export function callerTextConfirmsStaffTransfer(callerText: string): boolean {
+  return /^(?:yes|yeah|yep|yup|sure|okay|ok|please do|go ahead|that works|connect me|transfer me)[\s,.!?]*$/i
+    .test(callerText.trim());
+}
+
+export function callerTextDeclinesStaffTransfer(callerText: string): boolean {
+  return /^(?:no|nope|not now|don't|do not|no thank you|no thanks|stay here|keep me here)[\s,.!?]*$/i
+    .test(callerText.trim());
+}
+
 export function callerTextAsksOfficeHours(callerText: string): boolean {
   const normalized = callerText.trim().toLocaleLowerCase();
   if (!normalized) {

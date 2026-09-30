@@ -59,6 +59,11 @@ export interface PendingActions {
     attempts?: number;
     createdAt: string;
   };
+  TRANSFER_TO_STAFF?: {
+    status: "AWAITING_CALLER_CONFIRMATION";
+    reason?: string;
+    createdAt: string;
+  };
 }
 
 export interface PendingPatientWorkflowAction {
