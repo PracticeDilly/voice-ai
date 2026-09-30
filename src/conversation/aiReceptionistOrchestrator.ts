@@ -1,5 +1,7 @@
 import { SpringBootClient } from "../backend/springBootClient.js";
 import { CallSession, CallSessionStore, TranscriptTurn } from "../calls/callSession.js";
+import { OfficeContextCache } from "../calls/officeContextCache.js";
+import { config } from "../config/env.js";
 import { invalidateAppointmentLookupCacheAfterConfirmation } from "../appointments/appointmentLookupCache.js";
 import {
   consumeConfirmAppointmentPendingAction,
@@ -47,6 +49,10 @@ export class AiReceptionistOrchestrator {
   private readonly springBootClient = new SpringBootClient();
   private readonly toolExecutor = new ToolExecutor(this.springBootClient);
   private readonly modelClient = new ModelClient();
+  private readonly officeContextCache = new OfficeContextCache({
+    ttlMs: config.AI_OFFICE_CONTEXT_CACHE_TTL_MS,
+    maxEntries: config.AI_OFFICE_CONTEXT_CACHE_MAX_ENTRIES
+  });
 
   constructor(private readonly sessions: CallSessionStore) {}
 
@@ -58,7 +64,10 @@ export class AiReceptionistOrchestrator {
     toNumber?: string;
   }): Promise<CallSession> {
     const session = this.sessions.create(input);
-    session.officeContext = await this.springBootClient.getOfficeContext(input.officeCode, input.callSid);
+    session.officeContext = await this.officeContextCache.getOrLoad(
+      input.officeCode,
+      () => this.springBootClient.getOfficeContext(input.officeCode, input.callSid)
+    );
     this.sessions.append(session, {
       speaker: "system",
       text: "AI receptionist session initialized.",

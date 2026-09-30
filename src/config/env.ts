@@ -18,7 +18,9 @@ const envSchema = z.object({
   AI_NO_INPUT_TIMEOUT_MS: z.coerce.number().int().positive().default(6000),
   AI_MAX_NO_INPUT_REPROMPTS: z.coerce.number().int().nonnegative().default(2),
   AI_MODEL_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
-  SPRING_BOOT_TIMEOUT_MS: z.coerce.number().int().positive().default(10000)
+  SPRING_BOOT_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
+  AI_OFFICE_CONTEXT_CACHE_TTL_MS: z.coerce.number().int().positive().default(86400000),
+  AI_OFFICE_CONTEXT_CACHE_MAX_ENTRIES: z.coerce.number().int().positive().default(1000)
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

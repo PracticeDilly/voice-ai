@@ -8,6 +8,7 @@ This application owns the live AI call session:
 
 - Receives Twilio Conversation Relay WebSocket messages.
 - Maintains per-call session state by `callSid`.
+- Reuses shared office context across calls with a bounded, TTL-based process-local cache.
 - Calls the AI model with office context and conversation history.
 - Maps model tool requests to approved Spring Boot APIs.
 - Sends response text back to Twilio for speech.
