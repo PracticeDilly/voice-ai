@@ -380,7 +380,7 @@ test("prioritizes a corrected first name over an inferred transfer", () => {
   assert.equal(decision?.overrideResult?.toolRequest?.arguments.firstName, "Mary");
 });
 
-test("stops retrying the same identity value after a first-name mismatch", () => {
+test("asks once more for spelling when the first-name value was not corrected", () => {
   const call = session({
     currentIntent: "BOOK_APPOINTMENT",
     collectedFields: { firstName: "Nancy" },
@@ -409,7 +409,7 @@ test("stops retrying the same identity value after a first-name mismatch", () =>
   });
 
   assert.equal(decision?.overrideResult?.toolRequest, undefined);
-  assert.match(decision?.overrideResult?.reply ?? "", /continue as a new patient or speak with office staff/i);
+  assert.match(decision?.overrideResult?.reply ?? "", /spell your first name/i);
 });
 
 test("stops repeated DOB correction prompts and asks for a bounded next step", () => {

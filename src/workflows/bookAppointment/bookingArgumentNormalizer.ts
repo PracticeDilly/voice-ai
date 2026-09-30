@@ -1,5 +1,5 @@
 import { CallSession } from "../../calls/callSession.js";
-import { normalizeBookingDatePreference } from "./bookingDatePreference.js";
+import { normalizeBookingDatePreference, normalizeFlexibleBookingDateRange } from "./bookingDatePreference.js";
 import {
   singleOfficeContextProviderName
 } from "./officeContextProviders.js";
@@ -88,6 +88,17 @@ export function normalizeBookingArguments(
 
   copyKnownValue(normalized, "slotDate", toolArguments?.slotDate ?? session.workflowState?.context?.slotDate);
   copyKnownValue(normalized, "slotTime", toolArguments?.slotTime ?? session.workflowState?.context?.slotTime);
+
+  const flexibleRange = normalizeFlexibleBookingDateRange(
+    toolArguments?.datePreference ?? session.collectedFields.datePreference,
+    session.officeContext?.timezone,
+    session.startedAt
+  );
+  if (flexibleRange && !hasValue(toolArguments?.fromDate) && !hasValue(toolArguments?.toDate)) {
+    normalized.datePreference = flexibleRange.fromDate;
+    normalized.fromDate = flexibleRange.fromDate;
+    normalized.toDate = flexibleRange.toDate;
+  }
 
   return normalized;
 }

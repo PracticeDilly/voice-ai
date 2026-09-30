@@ -7,6 +7,7 @@ import {
   allNewPatientDataConfirmed,
   hasAllNewPatientData,
   isNewPatientBooking,
+  newPatientDataFields,
   markNewPatientConfirmationPrompt,
   newPatientConfirmationQuestion,
   pendingNewPatientConfirmation
@@ -136,6 +137,32 @@ function newPatientDataConfirmationDecision(
         shouldEndCall: false
       }
     };
+  }
+
+  if (!hasAllNewPatientData(session)) {
+    const missingField = newPatientDataFields.find((field) => (
+      !session.collectedFields[field]
+      && !(field === "patientPhone" && session.fromNumber)
+    ));
+    const questions: Record<string, string> = {
+      firstName: "What is the patient's first name?",
+      lastName: "What is the patient's last name?",
+      dob: "What is the patient's date of birth?",
+      gender: "What gender should I record for the patient?",
+      patientEmail: "What is the patient's email address?",
+      patientPhone: "What is the best phone number for the patient?"
+    };
+    if (missingField) {
+      return {
+        overrideResult: {
+          ...result,
+          intent: "BOOK_APPOINTMENT",
+          reply: questions[missingField],
+          toolRequest: undefined,
+          shouldEndCall: false
+        }
+      };
+    }
   }
 
   if (allNewPatientDataConfirmed(session)

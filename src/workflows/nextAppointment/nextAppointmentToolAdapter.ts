@@ -13,8 +13,17 @@ export class NextAppointmentToolAdapter implements WorkflowToolAdapter {
     }
 
     const argumentsRecord = tool.arguments ?? {};
-    const firstName = canonicalText(argumentsRecord.firstName) ?? canonicalText(session.collectedFields.firstName);
-    const dob = canonicalText(argumentsRecord.dob) ?? canonicalText(session.collectedFields.dob);
+    // After identity verification, the verified/corrected session values are
+    // authoritative. A chained model lookup can otherwise reuse the DOB from
+    // an earlier patient even after VERIFY_PATIENT accepted the correction.
+    const verified = session.workflowState?.workflow === "PATIENT_VERIFICATION"
+      && session.workflowState.state === "COMPLETED";
+    const firstName = verified
+      ? canonicalText(session.collectedFields.firstName) ?? canonicalText(argumentsRecord.firstName)
+      : canonicalText(argumentsRecord.firstName) ?? canonicalText(session.collectedFields.firstName);
+    const dob = verified
+      ? canonicalText(session.collectedFields.dob) ?? canonicalText(argumentsRecord.dob)
+      : canonicalText(argumentsRecord.dob) ?? canonicalText(session.collectedFields.dob);
     const fromNumber = canonicalText(argumentsRecord.fromNumber) ?? canonicalText(session.fromNumber);
 
     return {

@@ -322,8 +322,7 @@ function retryIdentityCorrection(session: CallSession, result: ModelTurnResult):
   const correctedValue = textValue(result.collectedFields?.[correctedField]);
   const attempts = pendingCorrection.attempts ?? 1;
 
-  if (attempts >= maxIdentityVerificationAttempts
-    || (correctedValue && sameIdentityValue(correctedValue, pendingCorrection.value))) {
+  if (attempts >= maxIdentityVerificationAttempts) {
     return identityCorrectionLimitDecision(session, result);
   }
 

@@ -596,7 +596,10 @@ export class ConversationRelayHandler {
     setEndingSession: (value: boolean) => void = () => undefined
   ): ReturnType<typeof setTimeout> {
     this.clearTimer(existingTimer);
-    const delayMs = this.estimatedSpeechDurationMs(assistantText) + config.AI_NO_INPUT_TIMEOUT_MS;
+    // ASR can finish seconds after speech starts. Keep a floor on caller
+    // response time so a normal answer does not race the reminder.
+    const delayMs = this.estimatedSpeechDurationMs(assistantText)
+      + Math.max(config.AI_NO_INPUT_TIMEOUT_MS, 10_000);
     logger.info("No-input timer armed", {
       callSid: session.callSid,
       delayMs,

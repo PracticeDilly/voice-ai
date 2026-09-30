@@ -31,7 +31,7 @@ test("requires gender only for an explicitly authorized new-patient booking", ()
     /missing gender/i
   );
   assert.equal(
-    bookingModelContractError(session(), booking({ ...validFields, continueAsNewPatient: true, gender: "Female" })),
+    bookingModelContractError(session(), booking({ ...validFields, continueAsNewPatient: true, gender: "Female", patientEmail: "nancy@example.com" })),
     undefined
   );
   assert.equal(bookingModelContractError(session(), booking(validFields)), undefined);

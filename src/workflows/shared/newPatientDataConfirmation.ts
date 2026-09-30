@@ -227,14 +227,20 @@ export function hasAllNewPatientData(session: CallSession): boolean {
 export function pendingNewPatientConfirmation(
   session: CallSession
 ): NewPatientConfirmationField | undefined {
-  if (!hasAllNewPatientData(session)) {
+  if (!isNewPatientBooking(session)) {
     return undefined;
   }
 
   const state = session.newPatientDataConfirmation ?? { confirmed: {} };
-  return newPatientConfirmationFields.find((field) => (
-    normalizeValue(state.confirmed[field]) !== normalizeValue(fieldValue(session, field))
-  ));
+  for (const field of newPatientDataFields) {
+    const value = fieldValue(session, field);
+    if (!value) return undefined;
+    if (isConfirmationField(field)
+      && normalizeValue(state.confirmed[field]) !== normalizeValue(value)) {
+      return field;
+    }
+  }
+  return undefined;
 }
 
 export function allNewPatientDataConfirmed(session: CallSession): boolean {

@@ -27,9 +27,12 @@ import {
   callerTextRequestsStaffTransfer,
   callerTextExplicitlyContinuesAsNewPatient
 } from "../workflows/shared/callerActionDecision.js";
-import { correctBookingWeekdayMentions } from "../workflows/bookAppointment/bookingDatePreference.js";
+import { addDaysToBookingDate, correctBookingRelativeDateMentions, correctBookingWeekdayMentions } from "../workflows/bookAppointment/bookingDatePreference.js";
+import { bookingPatientChoiceFromSpeech } from "../workflows/bookAppointment/bookingPatientChoice.js";
 import {
   constrainNewPatientDataUpdates,
+  markNewPatientConfirmationPrompt,
+  newPatientConfirmationQuestion,
   synchronizeNewPatientDataConfirmation
 } from "../workflows/shared/newPatientDataConfirmation.js";
 
@@ -143,6 +146,27 @@ export class AiReceptionistOrchestrator {
     };
   }
 
+  private startNewPatientBooking(session: CallSession): void {
+    session.bookingPatientChoice = "NEW_PATIENT";
+    session.awaitingBookingPatientChoice = false;
+    session.currentIntent = "BOOK_APPOINTMENT";
+    session.newPatientBookingCandidate = true;
+    session.newPatientDataConfirmation = { confirmed: {} };
+    session.collectedFields.continueAsNewPatient = true;
+    if (session.fromNumber && !session.collectedFields.patientPhone) {
+      session.collectedFields.patientPhone = session.fromNumber;
+    }
+    session.workflowState = {
+      contractVersion: 1,
+      workflow: "BOOK_APPOINTMENT",
+      state: "NEEDS_NEW_PATIENT_DATA",
+      requiredField: "firstName",
+      allowedActions: ["BOOK_APPOINTMENT"],
+      context: { patientType: "NEW_PATIENT", patientVerified: false, canDisclosePatientData: false },
+      failureReason: null
+    };
+  }
+
   private async processCallerText(
     session: CallSession,
     callerText: string,
@@ -200,8 +224,100 @@ export class AiReceptionistOrchestrator {
       };
     }
 
+    if (session.awaitingBookingPatientChoice) {
+      const choice = bookingPatientChoiceFromSpeech(callerText);
+      if (!choice) {
+        return {
+          reply: "For this appointment, is the patient new to our office or have they visited before?",
+          assistantMetadata: { intent: "BOOK_APPOINTMENT", source: "patient-status-clarification" },
+          shouldEndSession: false,
+          shouldTransferToStaff: false
+        };
+      }
+      session.awaitingBookingPatientChoice = false;
+      session.bookingPatientChoice = choice;
+      if (choice === "NEW_PATIENT") {
+        this.startNewPatientBooking(session);
+      }
+      if (/^(?:(?:i am|i'm|we are)\s+)?(?:a\s+|an\s+)?(?:new|existing|returning|current|first[- ]time)\s+patient[.!?]*$/i.test(callerText.trim())) {
+        return {
+          reply: choice === "NEW_PATIENT"
+            ? "Great. What is the patient's first name?"
+            : "Thanks. Please say and spell the patient's first name so I can find the right record.",
+          assistantMetadata: { intent: "BOOK_APPOINTMENT", source: "patient-status-choice" },
+          shouldEndSession: false,
+          shouldTransferToStaff: false
+        };
+      }
+    }
+
     let firstResult = await this.modelClient.nextTurn(session, callerText);
     firstResult = this.applyDeterministicCallerAuthorization(session, callerText, firstResult);
+    const previousAssistantText = [...session.transcript].reverse()
+      .find((turn) => turn.speaker === "assistant")?.text ?? "";
+    if (session.workflowState?.workflow === "BOOK_APPOINTMENT"
+      && session.workflowState.state === "NEEDS_SCHEDULING_PREFERENCE"
+      && session.lastBookingSearchRange
+      && /\b(?:next|earliest|first) available\b/i.test(previousAssistantText)
+      && /^(?:yes|yeah|yep|sure|please|go ahead|okay|ok)[\s,.!?]*$/i.test(callerText.trim())) {
+      const fromDate = addDaysToBookingDate(session.lastBookingSearchRange.toDate, 1);
+      const toDate = addDaysToBookingDate(fromDate, 7);
+      if (fromDate && toDate) {
+        firstResult = {
+          intent: "BOOK_APPOINTMENT",
+          toolRequest: {
+            name: "BOOK_APPOINTMENT",
+            arguments: {
+              ...session.collectedFields,
+              datePreference: fromDate,
+              fromDate,
+              toDate,
+              callerConfirmedBooking: false
+            }
+          }
+        };
+      }
+    }
+    if (firstResult.intent?.trim().toUpperCase() === "BOOK_APPOINTMENT"
+      && session.fromNumber
+      && !session.workflowState
+      && !session.bookingPatientChoice) {
+      session.currentIntent = "BOOK_APPOINTMENT";
+      session.collectedFields = { ...session.collectedFields, ...(firstResult.collectedFields ?? {}) };
+      const choice = bookingPatientChoiceFromSpeech(callerText);
+      if (choice === "NEW_PATIENT") {
+        this.startNewPatientBooking(session);
+        if (typeof session.collectedFields.firstName === "string" && session.collectedFields.firstName.trim()) {
+          markNewPatientConfirmationPrompt(session, "firstName");
+        }
+        return {
+          reply: session.newPatientDataConfirmation?.prompted?.field === "firstName"
+            ? newPatientConfirmationQuestion(session, "firstName")
+            : "Great. What is the patient's first name?",
+          assistantMetadata: { intent: "BOOK_APPOINTMENT", source: "patient-status-choice" },
+          shouldEndSession: false,
+          shouldTransferToStaff: false
+        };
+      }
+      if (choice !== "RETURNING_PATIENT") {
+        session.awaitingBookingPatientChoice = true;
+        return {
+          reply: "Before we book, is the patient new to our office or have they visited before?",
+          assistantMetadata: { intent: "BOOK_APPOINTMENT", source: "patient-status-question" },
+          shouldEndSession: false,
+          shouldTransferToStaff: false
+        };
+      }
+      session.bookingPatientChoice = choice;
+      if (choice === "RETURNING_PATIENT" && !session.collectedFields.firstName) {
+        return {
+          reply: "Please say and spell the patient's first name so I can find the right record.",
+          assistantMetadata: { intent: "BOOK_APPOINTMENT", source: "returning-patient-name-prompt" },
+          shouldEndSession: false,
+          shouldTransferToStaff: false
+        };
+      }
+    }
     const firstModelDurationMs = Date.now() - firstModelStartedAt;
     logger.info("AI first model result received", {
       callSid: session.callSid,
@@ -237,7 +353,9 @@ export class AiReceptionistOrchestrator {
     const reply = this.correctBookingReply(finalResult.reply ?? "I am sorry, I could not complete that request.", session);
     const transferToStaff = false;
     const transferOffer = assistantTextOffersStaffTransfer(reply);
-    const shouldEndSession = !transferOffer && finalResult.shouldEndCall === true;
+    // A model flag is not evidence that the caller ended the conversation.
+    // Explicit caller goodbyes and confirmed staff transfers return above.
+    const shouldEndSession = false;
     if (transferOffer) {
       session.pendingActions.TRANSFER_TO_STAFF = {
         status: "AWAITING_CALLER_CONFIRMATION",
@@ -372,6 +490,17 @@ export class AiReceptionistOrchestrator {
     const toolResult = await this.tryExecuteTool(session, result.toolRequest);
     session.lastToolResults[result.toolRequest.name] = toolResult;
     session.workflowState = extractWorkflowEnvelope(toolResult) ?? session.workflowState;
+    if (result.toolRequest.name === "VERIFY_PATIENT"
+      && isSuccessfulToolResult(toolResult)
+      && session.workflowState?.workflow === "PATIENT_VERIFICATION"
+      && session.workflowState.state === "COMPLETED") {
+      for (const field of ["firstName", "dob"] as const) {
+        const value = result.toolRequest.arguments[field];
+        if (typeof value === "string" && value.trim()) {
+          session.collectedFields[field] = value.trim();
+        }
+      }
+    }
     const confirmedAppointment = result.toolRequest.name === "CONFIRM_APPOINTMENT" && isSuccessfulToolResult(toolResult)
       ? selectedConfirmAppointmentOption(session, result.toolRequest.arguments, result)
       : undefined;
@@ -766,7 +895,11 @@ export class AiReceptionistOrchestrator {
           : undefined
       )));
     }
-    return correctBookingWeekdayMentions(reply, knownDates);
+    return correctBookingRelativeDateMentions(
+      correctBookingWeekdayMentions(reply, knownDates),
+      session.officeContext?.timezone,
+      session.startedAt
+    );
   }
 
   private isTerminalIntent(intent: string | undefined): boolean {

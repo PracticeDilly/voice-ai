@@ -51,6 +51,16 @@ export class ToolExecutor {
       };
     }
 
+    if (preparedTool.name === "BOOK_APPOINTMENT"
+      && typeof preparedTool.arguments.fromDate === "string"
+      && typeof preparedTool.arguments.toDate === "string"
+      && !preparedTool.arguments.slotDate) {
+      session.lastBookingSearchRange = {
+        fromDate: preparedTool.arguments.fromDate,
+        toDate: preparedTool.arguments.toDate
+      };
+    }
+
     return this.springBootClient.executeTool(session.callSid, session.officeCode, preparedTool);
   }
 }

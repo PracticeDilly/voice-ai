@@ -51,6 +51,26 @@ export function normalizeBookingDatePreference(
   return formatDate(addDays(today, offset));
 }
 
+export function normalizeFlexibleBookingDateRange(
+  value: unknown,
+  timezone: string | undefined,
+  nowIso: string
+): { fromDate: string; toDate: string } | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, " ");
+  if (/\btomorrow\b.{0,18}\b(?:day after tomorrow|next day)\b/.test(normalized)) {
+    return {
+      fromDate: normalizeBookingDatePreference("tomorrow", timezone, nowIso)!,
+      toDate: normalizeBookingDatePreference("day after tomorrow", timezone, nowIso)!
+    };
+  }
+  if (/^(?:any day|any date|anytime|whenever|next available|first available|earliest available|any day is fine|any day works)$/.test(normalized)) {
+    const fromDate = normalizeBookingDatePreference("today", timezone, nowIso)!;
+    return { fromDate, toDate: addDaysToBookingDate(fromDate, 7)! };
+  }
+  return undefined;
+}
+
 export function isBookingDateRangeValid(fromDate: unknown, toDate: unknown): boolean {
   const from = parseNormalizedDate(fromDate);
   const to = parseNormalizedDate(toDate);
@@ -110,6 +130,22 @@ export function correctBookingWeekdayMentions(text: string, knownDates: unknown[
 
     return mention.replace(new RegExp(weekday, "i"), weekdayNames[match.getUTCDay()]);
   });
+}
+
+export function correctBookingRelativeDateMentions(
+  text: string,
+  timezone: string | undefined,
+  nowIso: string
+): string {
+  return text.replace(
+    /\b(today|tomorrow|day after tomorrow),?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?/gi,
+    (mention, relative: string) => {
+      const date = normalizeBookingDatePreference(relative, timezone, nowIso);
+      const parsed = parseNormalizedDate(date);
+      if (!parsed) return mention;
+      return `${relative}, ${monthNames[parsed.getUTCMonth()]} ${parsed.getUTCDate()}, ${parsed.getUTCFullYear()}`;
+    }
+  );
 }
 
 function parseExplicitDate(value: string): string | undefined {

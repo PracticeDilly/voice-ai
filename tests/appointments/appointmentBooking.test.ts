@@ -2,7 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CallSession } from "../../src/calls/callSession.js";
 import { BookAppointmentToolAdapter } from "../../src/workflows/bookAppointment/bookAppointmentToolAdapter.js";
-import { correctBookingWeekdayMentions } from "../../src/workflows/bookAppointment/bookingDatePreference.js";
+import { correctBookingRelativeDateMentions, correctBookingWeekdayMentions, isBookingDateRangeValid } from "../../src/workflows/bookAppointment/bookingDatePreference.js";
+
+test("corrects impossible or off-by-one spoken relative dates in the office timezone", () => {
+  const now = "2026-09-30T11:29:00.000Z";
+  assert.equal(
+    correctBookingRelativeDateMentions("Would you prefer tomorrow, September 31, 2026?", "America/Los_Angeles", now),
+    "Would you prefer tomorrow, October 1, 2026?"
+  );
+  assert.equal(
+    correctBookingRelativeDateMentions("Today, October 1, 2026 also works.", "America/Los_Angeles", now),
+    "Today, September 30, 2026 also works."
+  );
+});
 import {
   allNewPatientDataConfirmed,
   constrainNewPatientDataUpdates,
@@ -72,6 +84,35 @@ test("keeps a requested date as an exact availability window", () => {
 
   assert.equal(prepared.arguments.fromDate, "09/04/2026");
   assert.equal(prepared.arguments.toDate, "09/04/2026");
+});
+
+test("searches a bounded range when the caller accepts either upcoming day", () => {
+  const callSession = session();
+  callSession.startedAt = "2026-09-30T11:29:00.000Z";
+  callSession.officeContext = { officeCode: "OFC001", timezone: "America/Los_Angeles" };
+  const adapter = new BookAppointmentToolAdapter();
+  const prepared = adapter.prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: { datePreference: "tomorrow or day after tomorrow" }
+  });
+  assert.equal(prepared.arguments.datePreference, "10/01/2026");
+  assert.equal(prepared.arguments.fromDate, "10/01/2026");
+  assert.equal(prepared.arguments.toDate, "10/02/2026");
+  assert.equal(isBookingDateRangeValid(prepared.arguments.fromDate, prepared.arguments.toDate), true);
+});
+
+test("searches the next week when the caller says any day is fine", () => {
+  const callSession = session();
+  callSession.startedAt = "2026-09-30T11:29:00.000Z";
+  callSession.officeContext = { officeCode: "OFC001", timezone: "America/Los_Angeles" };
+  const adapter = new BookAppointmentToolAdapter();
+  const prepared = adapter.prepareTool(callSession, {
+    name: "BOOK_APPOINTMENT",
+    arguments: { datePreference: "any day" }
+  });
+  assert.equal(prepared.arguments.fromDate, "09/30/2026");
+  assert.equal(prepared.arguments.toDate, "10/07/2026");
+  assert.equal(isBookingDateRangeValid(prepared.arguments.fromDate, prepared.arguments.toDate), true);
 });
 
 test("preserves the model-provided availability range", () => {
@@ -577,6 +618,19 @@ test("confirms new-patient fields once and reopens only a corrected field", () =
   });
   assert.equal(pendingNewPatientConfirmation(callSession), "patientEmail");
   assert.equal(callSession.newPatientDataConfirmation?.confirmed.firstName, "Madi");
+});
+
+test("asks for a new patient's name spelling as soon as the name is captured", () => {
+  const callSession = session();
+  callSession.newPatientBookingCandidate = true;
+  callSession.collectedFields = { firstName: "Kitty", patientPhone: "+15551234567" };
+  assert.equal(pendingNewPatientConfirmation(callSession), "firstName");
+  markNewPatientConfirmationPrompt(callSession, "firstName");
+  assert.match(newPatientConfirmationQuestion(callSession, "firstName"), /spell that for me/i);
+  synchronizeNewPatientDataConfirmation(callSession, { collectedFields: { firstName: "Kitty" } }, "K I T T Y");
+  assert.match(newPatientConfirmationQuestion(callSession, "firstName"), /Is that correct/i);
+  synchronizeNewPatientDataConfirmation(callSession, { collectedFields: {} }, "Yes");
+  assert.equal(pendingNewPatientConfirmation(callSession), undefined);
 });
 
 test("merges only the active new-patient field", () => {

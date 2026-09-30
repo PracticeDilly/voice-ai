@@ -104,6 +104,9 @@ export interface CallSession {
   pendingActions: PendingActions;
   pendingPatientWorkflow?: PendingPatientWorkflowAction;
   newPatientBookingCandidate?: boolean;
+  bookingPatientChoice?: "NEW_PATIENT" | "RETURNING_PATIENT";
+  awaitingBookingPatientChoice?: boolean;
+  lastBookingSearchRange?: { fromDate: string; toDate: string };
   newPatientDataConfirmation?: NewPatientDataConfirmationState;
   verifiedIdentityFingerprint?: string;
   appointmentSelections: AppointmentSelections;

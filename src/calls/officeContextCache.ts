@@ -1,4 +1,5 @@
 import type { OfficeContext } from "./callSession.js";
+import { logger } from "../utils/logger.js";
 
 interface CacheEntry {
   context: OfficeContext;
@@ -42,12 +43,18 @@ export class OfficeContextCache {
     const cached = this.entries.get(key);
     if (cached && cached.expiresAt > now) {
       cached.lastAccessAt = now;
+      logger.info("Office context cache hit", { officeCode: key });
       return cached.context;
     }
     if (cached) this.entries.delete(key);
 
     const existingLoad = this.inFlight.get(key);
-    if (existingLoad) return existingLoad;
+    if (existingLoad) {
+      logger.info("Office context cache joined in-flight load", { officeCode: key });
+      return existingLoad;
+    }
+
+    logger.info("Office context cache miss", { officeCode: key });
 
     const load = loader()
       .then((context) => {
@@ -58,6 +65,7 @@ export class OfficeContextCache {
           lastAccessAt: storedAt
         });
         this.evictLeastRecentlyUsed();
+        logger.info("Office context cache populated", { officeCode: key, ttlMs: this.ttlMs });
         return context;
       })
       .finally(() => {

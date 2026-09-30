@@ -33,7 +33,7 @@ test("builds a compact workflow-oriented prompt", () => {
   assert.match(prompt, /Appointment type resolution is mandatory before every BOOK_APPOINTMENT request/i);
   assert.match(prompt, /Never submit BOOK_APPOINTMENT with a missing, null, string-valued, or cross-category appointmentTypeId/i);
   assert.match(prompt, /present directly inside toolRequest\.arguments/i);
-  assert.match(prompt, /A reply such as yes, please, or okay does not contain a date/i);
+  assert.match(prompt, /Node searches the next seven-day window/i);
   assert.match(prompt, /Node will complete the booking after the backend accepts the slot; do not ask another permission question/i);
   assert.match(prompt, /office context as a closed-world source of truth/i);
   assert.match(prompt, /do not guess, infer, or use general knowledge/i);
@@ -47,6 +47,7 @@ test("uses the office-local current date in the prompt", () => {
   callSession.officeContext!.timezone = "America/Los_Angeles";
 
   assert.match(buildSystemPrompt(callSession), /Current date: 2026-08-16/);
+  assert.match(buildSystemPrompt(callSession), /today=2026-08-16, tomorrow=08\/17\/2026, day after tomorrow=08\/18\/2026/);
 });
 
 test("includes appointment type eligibility and context-only provider instructions", () => {
@@ -57,7 +58,7 @@ test("includes appointment type eligibility and context-only provider instructio
   };
   const prompt = buildSystemPrompt(callSession);
   assert.ok(prompt.includes(JSON.stringify(callSession.officeContext!.appointmentTypes)));
-  assert.match(prompt, /Backend determines RETURNING_PATIENT vs NEW_PATIENT/);
+  assert.match(prompt, /caller.s new-or-returning choice routes booking/i);
   assert.match(prompt, /appointmentTypes catalog/);
   assert.match(prompt, /copy names exactly/);
   assert.match(prompt, /Preserve bookingReason/);

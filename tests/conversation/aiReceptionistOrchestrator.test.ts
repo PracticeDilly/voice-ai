@@ -6,6 +6,89 @@ import { ModelTurnResult } from "../../src/conversation/modelClient.js";
 import { ToolRequest, ToolResult } from "../../src/backend/springBootClient.js";
 import { BookingWorkflowError } from "../../src/workflows/bookAppointment/bookingModelContract.js";
 
+test("asks once whether a booking caller is new or returning and honors the new choice", async () => {
+  const sessions = new CallSessionStore();
+  const session = sessions.create({ callSid: "CA-patient-choice", officeCode: "TEST", fromNumber: "+15551234567" });
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  let modelCalls = 0;
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      modelCalls += 1;
+      return {
+        intent: "BOOK_APPOINTMENT",
+        collectedFields: { bookingReason: "cleaning" },
+        toolRequest: { name: "BOOK_APPOINTMENT", arguments: {} }
+      };
+    }
+  } });
+  Object.defineProperty(orchestrator, "toolExecutor", { value: {
+    async execute() { throw new Error("must not book before the patient chooses a path"); }
+  } });
+
+  const first = await orchestrator.handleCallerText(session, "I'd like to book a cleaning", { recordCallerTurn: false });
+  assert.match(first.reply, /new to our office or have they visited before/i);
+  assert.equal(session.awaitingBookingPatientChoice, true);
+  assert.equal(session.collectedFields.bookingReason, "cleaning");
+  const second = await orchestrator.handleCallerText(session, "I'm a new patient", { recordCallerTurn: false });
+  assert.match(second.reply, /first name/i);
+  assert.equal(session.newPatientBookingCandidate, true);
+  assert.equal(session.bookingPatientChoice, "NEW_PATIENT");
+  assert.equal(session.workflowState?.state, "NEEDS_NEW_PATIENT_DATA");
+  assert.equal(modelCalls, 1);
+});
+
+test("a returning booking caller is asked to spell their name without being classified from caller ID", async () => {
+  const sessions = new CallSessionStore();
+  const session = sessions.create({ callSid: "CA-returning-choice", officeCode: "TEST", fromNumber: "+15551234567" });
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() { return { intent: "BOOK_APPOINTMENT", reply: "What is your name?" }; }
+  } });
+  await orchestrator.handleCallerText(session, "I need an appointment", { recordCallerTurn: false });
+  const choice = await orchestrator.handleCallerText(session, "I'm a returning patient", { recordCallerTurn: false });
+  assert.match(choice.reply, /say and spell/i);
+  assert.equal(session.bookingPatientChoice, "RETURNING_PATIENT");
+  assert.equal(session.newPatientBookingCandidate, undefined);
+});
+
+test("checks the next date window when the caller accepts an offer to find the next available visit", async () => {
+  const { orchestrator, session, executed } = bookingHarness([
+    { intent: "BOOK_APPOINTMENT", reply: "I found more times. Which works for you?" }
+  ], ["SELECT_SLOT"]);
+  session.workflowState = {
+    contractVersion: 1,
+    workflow: "BOOK_APPOINTMENT",
+    state: "NEEDS_SCHEDULING_PREFERENCE"
+  };
+  session.lastBookingSearchRange = { fromDate: "09/30/2026", toDate: "10/01/2026" };
+  session.transcript.push({
+    speaker: "assistant",
+    text: "Would you like me to check the next available appointment?",
+    at: "2026-09-30T11:30:07.000Z"
+  });
+
+  const outcome = await orchestrator.handleCallerText(session, "Yes", { recordCallerTurn: false });
+  assert.equal(executed.length, 1);
+  assert.equal(executed[0].arguments.fromDate, "10/02/2026");
+  assert.equal(executed[0].arguments.toDate, "10/09/2026");
+  assert.match(outcome.reply, /Which works for you/i);
+});
+
+test("does not end or transfer a caller who only questions a failed lookup", async () => {
+  const sessions = new CallSessionStore();
+  const callSession = sessions.create({ callSid: "CA-lookup-question", officeCode: "TEST" });
+  callSession.currentIntent = "next_appointment";
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      return { intent: "next_appointment", reply: "I will transfer you now.", shouldEndCall: true };
+    }
+  } });
+  const outcome = await orchestrator.handleCallerText(callSession, "Why couldn't you match it?", { recordCallerTurn: false });
+  assert.equal(outcome.shouldEndSession, false);
+  assert.equal(outcome.shouldTransferToStaff, false);
+});
+
 test("executes a booking tool returned by the follow-up model instead of leaving the caller waiting", async () => {
   const { orchestrator, session, executed } = bookingHarness([
     { intent: "BOOK_APPOINTMENT", toolRequest: { name: "BOOK_APPOINTMENT", arguments: { dob: "04/01/2000" } } },
@@ -272,7 +355,7 @@ test("clears a model offered transfer when the caller declines", async () => {
   assert.equal(session.pendingActions.TRANSFER_TO_STAFF, undefined);
 });
 
-test("returns a response when patient verification tools recurse repeatedly", async () => {
+test("asks for the missing identity field instead of recursing verification tools", async () => {
   const sessions = new CallSessionStore();
   const orchestrator = new AiReceptionistOrchestrator(sessions);
   const session = sessions.create({ callSid: "CA-identity-loop", officeCode: "TEST" });
@@ -316,8 +399,8 @@ test("returns a response when patient verification tools recurse repeatedly", as
 
   const outcome = await orchestrator.handleCallerText(session, "Book an appointment", { recordCallerTurn: false });
 
-  assert.equal(executed.length, 3);
-  assert.match(outcome.reply, /still unable to verify/i);
+  assert.equal(executed.length, 0);
+  assert.match(outcome.reply, /first name/i);
   assert.equal(outcome.shouldTransferToStaff, false);
 });
 

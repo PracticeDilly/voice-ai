@@ -50,6 +50,21 @@ test("omits blank caller-derived fields from a next-appointment lookup", () => {
   });
 });
 
+test("uses the just-verified identity instead of stale chained lookup arguments", () => {
+  const callSession = session();
+  callSession.collectedFields = { firstName: "Mary", dob: "01/01/2004" };
+  callSession.workflowState = {
+    contractVersion: 1,
+    workflow: "PATIENT_VERIFICATION",
+    state: "COMPLETED"
+  };
+  const prepared = toolAdapter.prepareTool(callSession, {
+    name: "GET_NEXT_APPOINTMENT",
+    arguments: { firstName: "Mary", dob: "11/26/2003" }
+  });
+  assert.equal(prepared.arguments.dob, "01/01/2004");
+});
+
 test("does not modify unrelated tool requests", () => {
   const request = {
     name: "GET_INSURANCE_POLICY",
