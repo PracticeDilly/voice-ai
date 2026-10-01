@@ -779,10 +779,17 @@ test("books the selected slot in one caller turn after an explicit appointment r
     async nextTurn() {
       return {
         intent: "BOOK_APPOINTMENT",
-        toolRequest: {
-          name: "BOOK_APPOINTMENT",
-          arguments: { slotDate: "10/02/2026", slotTime: "04:30 PM", callerConfirmedBooking: true }
-        }
+        callerAction: {
+          speechAct: "AUTHORIZATION",
+          workflowIntent: "BOOK_APPOINTMENT",
+          requestedAction: "BOOK_APPOINTMENT",
+          authorization: {
+            stateChangingAction: "BOOK_APPOINTMENT",
+            isExplicit: true,
+            selectedAppointmentReference: { slotDate: "10/02/2026", slotTime: "04:30 PM" }
+          }
+        },
+        reply: "Let me confirm your contact information again."
       };
     },
     async bookingResponse() {

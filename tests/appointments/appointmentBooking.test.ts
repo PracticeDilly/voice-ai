@@ -563,6 +563,9 @@ test("blocks PMS execution until complete new-patient data is confirmed", () => 
     name: "BOOK_APPOINTMENT",
     arguments: {}
   });
+
+  markNewPatientConfirmationPrompt(callSession, "firstName");
+  synchronizeNewPatientDataConfirmation(callSession, { confirmedFields: ["firstName"] }, "Yes, that's right.");
   assert.match(adapter.validateTool(callSession, prepared) ?? "", /confirmation of the patient's email and phone/);
 
   synchronizeNewPatientDataConfirmation(callSession, {
@@ -590,6 +593,8 @@ test("confirms contact fields once and reopens only a corrected email", () => {
     patientEmail: "madi.brown@example.com"
   };
 
+  markNewPatientConfirmationPrompt(callSession, "firstName");
+  synchronizeNewPatientDataConfirmation(callSession, { confirmedFields: ["firstName"] }, "Yes, that's right.");
   synchronizeNewPatientDataConfirmation(callSession, { collectedFields: callSession.collectedFields });
   assert.equal(pendingNewPatientConfirmation(callSession), "patientEmail");
 
@@ -605,13 +610,38 @@ test("confirms contact fields once and reopens only a corrected email", () => {
   assert.equal(callSession.newPatientDataConfirmation?.confirmed.patientPhone, "9494846418");
 });
 
-test("reads a clear new patient's full name once without name or DOB confirmation", () => {
+test("spells a new patient's name back once and confirms the combined name", () => {
   const callSession = session();
   callSession.newPatientBookingCandidate = true;
   callSession.collectedFields = { firstName: "Erica", lastName: "Jones", dob: "10/01/2001", gender: "Female", patientPhone: "+15551234567" };
+  assert.equal(pendingNewPatientConfirmation(callSession), "firstName");
+  markNewPatientConfirmationPrompt(callSession, "firstName");
+  assert.match(newPatientConfirmationQuestion(callSession, "firstName"), /E R I C A, Erica, and last name J O N E S, Jones/i);
+  assert.match(newPatientConfirmationQuestion(callSession, "firstName"), /is that correct/i);
+
+  synchronizeNewPatientDataConfirmation(callSession, { confirmedFields: ["firstName"] }, "Yes, that's right.");
   assert.equal(pendingNewPatientConfirmation(callSession), undefined);
-  assert.equal(readBackNewPatientName(callSession, "What is the date of birth?"), "I have the patient's name as Erica Jones. What is the date of birth?");
-  assert.equal(readBackNewPatientName(callSession, "What gender should I record?"), "What gender should I record?");
+  assert.equal(readBackNewPatientName(callSession, "What is the date of birth?"), "What is the date of birth?");
+});
+
+test("accepts a corrected name directly without another confirmation", () => {
+  const callSession = session();
+  callSession.newPatientBookingCandidate = true;
+  callSession.collectedFields = { firstName: "Erica", lastName: "Jones" };
+  markNewPatientConfirmationPrompt(callSession, "firstName");
+
+  const result = {
+    callerAction: { speechAct: "CORRECTION" as const },
+    updatedFields: ["firstName"],
+    collectedFields: { firstName: "Hannah" }
+  };
+  constrainNewPatientDataUpdates(callSession, result);
+  callSession.collectedFields = { ...callSession.collectedFields, ...result.collectedFields };
+  synchronizeNewPatientDataConfirmation(callSession, result, "Actually, it's Hannah.");
+
+  assert.equal(callSession.collectedFields.firstName, "Hannah");
+  assert.equal(callSession.newPatientDataConfirmation?.confirmed.firstName, "Hannah");
+  assert.equal(pendingNewPatientConfirmation(callSession), undefined);
 });
 
 test("merges only the active new-patient field", () => {
@@ -685,11 +715,10 @@ test("does not require a separate name or DOB confirmation", () => {
     patientPhone: "9494846418"
   };
 
-  synchronizeNewPatientDataConfirmation(callSession, {
-    confirmedFields: ["firstName"]
-  });
-
-  assert.equal(callSession.newPatientDataConfirmation?.confirmed.firstName, undefined);
+  markNewPatientConfirmationPrompt(callSession, "firstName");
+  synchronizeNewPatientDataConfirmation(callSession, { confirmedFields: ["firstName"] }, "Yes, that's right.");
+  assert.equal(callSession.newPatientDataConfirmation?.confirmed.firstName, "Maddie");
+  assert.equal(callSession.newPatientDataConfirmation?.confirmed.lastName, "Brown");
   assert.equal(pendingNewPatientConfirmation(callSession), "patientEmail");
 });
 
@@ -733,8 +762,11 @@ test("does not add separate name, DOB, or gender confirmation steps", () => {
     patientPhone: "9494846418"
   };
 
-  assert.equal(pendingNewPatientConfirmation(callSession), "patientEmail");
+  assert.equal(pendingNewPatientConfirmation(callSession), "firstName");
   assert.equal(allNewPatientDataConfirmed(callSession), false);
+  markNewPatientConfirmationPrompt(callSession, "firstName");
+  synchronizeNewPatientDataConfirmation(callSession, { confirmedFields: ["firstName"] }, "Yes, that's right.");
+  assert.equal(pendingNewPatientConfirmation(callSession), "patientEmail");
 });
 
 function session(): CallSession {

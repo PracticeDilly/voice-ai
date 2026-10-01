@@ -53,6 +53,8 @@ export function synchronizeNewPatientDataConfirmation(
   if (!isNewPatientBooking(session)) return;
   const state = session.newPatientDataConfirmation ?? { confirmed: {} };
   const prompted = state.prompted;
+  const wasAwaitingNameCorrection = state.awaitingCorrectionField === "firstName"
+    || state.awaitingCorrectionField === "lastName";
   const candidates = { ...result.toolRequest?.arguments, ...result.collectedFields };
   if (callerText) {
     const unclear = new Set(state.unclearFields ?? []);
@@ -78,9 +80,24 @@ export function synchronizeNewPatientDataConfirmation(
       state.awaitingCorrectionValue = undefined;
     }
   }
+  const currentName = fullNameValue(session);
+  const isNamePrompt = prompted?.field === "firstName";
+  const nameWasCorrected = !!currentName && !!callerText
+    && result.callerAction?.speechAct === "CORRECTION"
+    && (result.updatedFields ?? []).some((field) => field === "firstName" || field === "lastName");
+  const correctedNameProvided = !!currentName && !!callerText && wasAwaitingNameCorrection
+    && (result.updatedFields ?? []).some((field) => field === "firstName" || field === "lastName");
+  if ((nameWasCorrected && isNamePrompt && !sameValue(fullNameValue(session), prompted!.value))
+    || correctedNameProvided) {
+    acceptCurrentName(session, state);
+  }
   // Only a caller turn may confirm a matching, previously spoken read-back.
-  if (callerText && prompted && sameValue(fieldValue(session, prompted.field), prompted.value)) {
-    if ((result.callerAction?.speechAct === "DECLINE" || result.callerAction?.speechAct === "CORRECTION")
+  if (callerText && prompted && sameValue(confirmationValue(session, prompted.field), prompted.value)) {
+    const callerCorrectedName = prompted.field === "firstName"
+      && result.callerAction?.speechAct === "CORRECTION"
+      && (result.updatedFields ?? []).some((field) => field === "firstName" || field === "lastName");
+    if (!callerCorrectedName
+      && (result.callerAction?.speechAct === "DECLINE" || result.callerAction?.speechAct === "CORRECTION")
       && !(result.updatedFields ?? []).some((field) => field !== prompted.field)) {
       state.awaitingCorrectionField = prompted.field;
       state.awaitingCorrectionValue = prompted.value;
@@ -90,6 +107,11 @@ export function synchronizeNewPatientDataConfirmation(
       };
       delete state.confirmed[prompted.field];
       state.prompted = undefined;
+    } else if (prompted.field === "firstName" && result.confirmedFields?.some((field) => field === "firstName" || field === "lastName")) {
+      acceptCurrentName(session, state);
+      state.prompted = undefined;
+      state.awaitingCorrectionField = undefined;
+      state.awaitingCorrectionValue = undefined;
     } else if (result.callerAction?.speechAct !== "CORRECTION"
       && result.confirmedFields?.includes(prompted.field)) {
       state.confirmed[prompted.field] = prompted.value;
@@ -164,6 +186,13 @@ export function pendingNewPatientConfirmation(
   }
 
   const state = session.newPatientDataConfirmation ?? { confirmed: {} };
+  const name = fullNameValue(session);
+  const firstName = fieldValue(session, "firstName");
+  const lastName = fieldValue(session, "lastName");
+  if (name && ((firstName && !sameValue(state.confirmed.firstName, firstName))
+    || (lastName && !sameValue(state.confirmed.lastName, lastName)))) {
+    return "firstName";
+  }
   for (const field of newPatientDataFields) {
     const value = fieldValue(session, field);
     if (!value) return undefined;
@@ -201,7 +230,7 @@ export function markNewPatientConfirmationPrompt(
   session: CallSession,
   field: NewPatientConfirmationField
 ): void {
-  const value = fieldValue(session, field);
+  const value = confirmationValue(session, field);
   if (!value) {
     return;
   }
@@ -214,6 +243,9 @@ export function markNewPatientConfirmationPrompt(
       value,
       kind: "CONFIRM"
     };
+  }
+  if (field === "firstName") {
+    state.nameReadBack = value;
   }
   session.newPatientDataConfirmation = state;
 }
@@ -254,8 +286,9 @@ export function newPatientConfirmationQuestion(
 
   switch (field) {
     case "firstName":
+      return nameConfirmationQuestion(session);
     case "lastName":
-      return `I have the patient's name as ${fieldValue(session, "firstName") ?? ""} ${fieldValue(session, "lastName") ?? ""}. Is that correct?`;
+      return nameConfirmationQuestion(session);
     case "dob":
       return `I have the patient's date of birth as ${value}. Is that correct?`;
     case "patientEmail":
@@ -321,6 +354,40 @@ function phoneConfirmationQuestion(session: CallSession, value: string): string 
   }
 
   return `I have the patient's phone number as ${digits.split("").join(" ") || value}. Is that correct?`;
+}
+
+function confirmationValue(session: CallSession, field: NewPatientConfirmationField): string | undefined {
+  return field === "firstName" ? fullNameValue(session) : fieldValue(session, field);
+}
+
+function fullNameValue(session: CallSession): string | undefined {
+  const name = [fieldValue(session, "firstName"), fieldValue(session, "lastName")].filter(Boolean).join(" ");
+  return name || undefined;
+}
+
+function acceptCurrentName(
+  session: CallSession,
+  state: NewPatientDataConfirmationState
+): void {
+  const firstName = fieldValue(session, "firstName");
+  const lastName = fieldValue(session, "lastName");
+  if (firstName) state.confirmed.firstName = firstName;
+  if (lastName) state.confirmed.lastName = lastName;
+  state.nameReadBack = fullNameValue(session);
+}
+
+function nameConfirmationQuestion(session: CallSession): string {
+  const firstName = fieldValue(session, "firstName") ?? "";
+  const lastName = fieldValue(session, "lastName");
+  const firstPart = `first name ${spellNameForSpeech(firstName)}, ${firstName}`;
+  const name = lastName
+    ? `${firstPart}, and last name ${spellNameForSpeech(lastName)}, ${lastName}`
+    : firstPart;
+  return `I have the patient's ${name}. Is that correct?`;
+}
+
+function spellNameForSpeech(value: string): string {
+  return Array.from(value.replace(/\s+/g, "").toLocaleUpperCase()).join(" ");
 }
 
 function fieldLabel(field: NewPatientConfirmationField): string {

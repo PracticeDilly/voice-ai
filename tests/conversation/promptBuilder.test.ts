@@ -37,9 +37,11 @@ test("builds a compact workflow-oriented prompt", () => {
   assert.match(prompt, /For new patients/i);
   assert.match(prompt, /collect firstName, lastName, dob, gender, patientEmail, and patientPhone/i);
   assert.match(prompt, /Ask directly for gender/i);
-  assert.match(prompt, /without an approval checkpoint/i);
-  assert.match(prompt, /confirm email once/i);
-  assert.match(prompt, /Ask for spelling only to resolve uncertainty or a correction/i);
+  assert.match(prompt, /spell first and last names back once, and ask one confirmation/i);
+  assert.match(prompt, /accept a corrected name as final without reconfirming/i);
+  assert.match(prompt, /confirm email and phone once after read-back/i);
+  assert.match(prompt, /After acceptance, do not ask confirmed details again unless corrected/i);
+  assert.match(prompt, /Spell first and last names back once and ask one confirmation/i);
   assert.match(prompt, /Use session\.fromNumber when appropriate and confirm its last four digits/i);
   assert.match(prompt, /never send the literal text fromNumber as patientPhone/i);
   assert.match(prompt, /Accept clear DOB without confirmation/i);
@@ -51,7 +53,8 @@ test("builds a compact workflow-oriented prompt", () => {
   assert.match(prompt, /Never submit BOOK_APPOINTMENT with a missing, null, string-valued, or cross-category appointmentTypeId/i);
   assert.match(prompt, /present directly inside toolRequest\.arguments/i);
   assert.match(prompt, /Node searches the next seven-day window/i);
-  assert.match(prompt, /Node will complete the booking after the backend accepts the slot; do not ask another permission question/i);
+  assert.match(prompt, /explicit BOOK_APPOINTMENT authorization referencing that slot/i);
+  assert.match(prompt, /Node books after backend acceptance; no extra permission question/i);
   assert.match(prompt, /office context as a closed-world source of truth/i);
   assert.match(prompt, /do not guess, infer, or use general knowledge/i);
   assert.match(prompt, /never present an absent or ambiguous office fact as true/i);

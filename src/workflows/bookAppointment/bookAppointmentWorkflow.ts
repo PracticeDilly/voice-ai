@@ -11,7 +11,10 @@ import { ConversationWorkflow, ToolPolicyDecision } from "../shared/workflowType
 import { BookAppointmentToolAdapter } from "./bookAppointmentToolAdapter.js";
 import { BookingAppointmentTypeResolutionPort, ensureBookingAppointmentType } from "./bookingAppointmentTypeResolver.js";
 import { prepareBookingWorkflowFollowup } from "./bookingFollowupPolicy.js";
-import { callerSelectedAvailableBookingSlot } from "./bookingSlotSelection.js";
+import {
+  callerSelectedAvailableBookingSlot,
+  explicitlyAuthorizedAvailableBookingSlot
+} from "./bookingSlotSelection.js";
 import {
   addDaysToBookingDate,
   correctBookingRelativeDateMentions,
@@ -219,6 +222,27 @@ export function createBookAppointmentWorkflow(
     const patientDataConfirmation = newPatientDataConfirmationDecision(session, result);
     if (patientDataConfirmation) {
       return patientDataConfirmation;
+    }
+
+    const selectedSlot = explicitlyAuthorizedAvailableBookingSlot(session, result);
+    if (selectedSlot) {
+      return {
+        overrideResult: {
+          ...result,
+          intent: "BOOK_APPOINTMENT",
+          shouldEndCall: false,
+          toolRequest: {
+            name: "BOOK_APPOINTMENT",
+            arguments: {
+              ...session.collectedFields,
+              ...result.collectedFields,
+              ...result.toolRequest?.arguments,
+              ...selectedSlot,
+              callerConfirmedBooking: false
+            }
+          }
+        }
+      };
     }
 
     if (isBookingSlotRepeatRequest(session, result)) {

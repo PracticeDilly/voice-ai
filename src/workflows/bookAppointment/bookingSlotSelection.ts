@@ -8,12 +8,22 @@ export function callerSelectedAvailableBookingSlot(session: CallSession, result:
   }
 
   const requestedSlot = result.toolRequest?.arguments;
+  const authorizedSlot = explicitlyAuthorizedAvailableBookingSlot(session, result);
   const slots = session.workflowState.context?.slots;
   if (!requestedSlot || !Array.isArray(slots)
     || !slots.some((slot) => slot && typeof slot === "object"
       && (slot as { slotDate?: unknown; slotTime?: unknown }).slotDate === requestedSlot.slotDate
       && (slot as { slotDate?: unknown; slotTime?: unknown }).slotTime === requestedSlot.slotTime)) {
     return false;
+  }
+
+  // Structured caller authorization is the source of truth when the model
+  // identifies a specific offered slot. It also works when the caller's
+  // phrasing is not covered by the legacy transcript heuristic below.
+  if (authorizedSlot
+    && authorizedSlot.slotDate === requestedSlot.slotDate
+    && authorizedSlot.slotTime === requestedSlot.slotTime) {
+    return true;
   }
 
   const patientTurns = session.transcript.filter((turn) => turn.speaker === "patient");
@@ -56,4 +66,39 @@ export function callerSelectedAvailableBookingSlot(session: CallSession, result:
       && (!matchingSpokenTime[3] || parsed[3].toLowerCase() === matchingSpokenTime[3].toLowerCase());
   });
   return matchingOfferedSlots.length === 1;
+}
+
+export function explicitlyAuthorizedAvailableBookingSlot(
+  session: CallSession,
+  result: ModelTurnResult
+): { slotDate: string; slotTime: string } | undefined {
+  if (session.workflowState?.workflow !== "BOOK_APPOINTMENT"
+    || session.workflowState.state !== "SELECT_SLOT") {
+    return undefined;
+  }
+
+  const action = result.callerAction;
+  const reference = action?.authorization?.selectedAppointmentReference;
+  if (action?.speechAct !== "AUTHORIZATION"
+    || action.workflowIntent !== "BOOK_APPOINTMENT"
+    || action.requestedAction !== "BOOK_APPOINTMENT"
+    || action.authorization?.stateChangingAction !== "BOOK_APPOINTMENT"
+    || action.authorization.isExplicit !== true
+    || !reference
+    || typeof reference.slotDate !== "string"
+    || typeof reference.slotTime !== "string") {
+    return undefined;
+  }
+
+  const slots = session.workflowState.context?.slots;
+  if (!Array.isArray(slots)) {
+    return undefined;
+  }
+
+  const matches = slots.filter((slot) => slot && typeof slot === "object"
+    && (slot as { slotDate?: unknown }).slotDate === reference.slotDate
+    && (slot as { slotTime?: unknown }).slotTime === reference.slotTime);
+  return matches.length === 1
+    ? { slotDate: reference.slotDate, slotTime: reference.slotTime }
+    : undefined;
 }
