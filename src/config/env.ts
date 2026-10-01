@@ -3,6 +3,7 @@ import { z } from "zod";
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  AI_LOG_RAW_MODEL_RESPONSES: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
   PORT: z.coerce.number().int().positive().default(8081),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   PUBLIC_WS_URL: z.string().url().optional(),

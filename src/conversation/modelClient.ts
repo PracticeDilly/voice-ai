@@ -395,7 +395,11 @@ export class ModelClient {
       if (!(error instanceof ModelTurnResponseValidationError)) throw error;
       logger.warn("Model response failed schema validation", {
         callSid: session.callSid,
-        issues: error.issueDetails
+        repairAttempt: repairCounts.responseShape,
+        issues: error.issueDetails,
+        ...(config.NODE_ENV !== "production" && config.AI_LOG_RAW_MODEL_RESPONSES
+          ? { rawModelResponse: error.rejectedResponse }
+          : {})
       });
       if (repairCounts.responseShape >= 1) {
         throw new BookingWorkflowError(`Model response remained invalid after correction: ${error.message}`);
