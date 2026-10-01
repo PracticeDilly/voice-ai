@@ -55,6 +55,25 @@ test("accepts correctly typed model field lists and requests their response sche
   }
 });
 
+test("treats an empty toolRequest as no tool call while retaining booking intent", async () => {
+  const { modelClient, requests } = modelClientWithResponses([{
+    ...validResponse,
+    reply: "Are you a new patient or have you been to our office before?",
+    intent: "BOOK_APPOINTMENT",
+    toolRequest: {}
+  }]);
+
+  const result = await modelClient.nextTurn(testSession(), "I want to book an appointment.");
+
+  assert.equal(result.intent, "BOOK_APPOINTMENT");
+  assert.equal(result.toolRequest, undefined);
+  assert.equal(requests.length, 1);
+  const responseFormat = requests[0].response_format as {
+    json_schema: { schema: { properties: { toolRequest: { anyOf: Array<{ type: string; maxProperties?: number }> } } } };
+  };
+  assert.equal(responseFormat.json_schema.schema.properties.toolRequest.anyOf[1].maxProperties, 0);
+});
+
 test("asks the model to correct an object-shaped updatedFields value", async () => {
   const { modelClient, requests } = modelClientWithResponses([
     { ...validResponse, updatedFields: { firstName: true } },

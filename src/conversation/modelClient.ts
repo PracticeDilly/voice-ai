@@ -29,10 +29,15 @@ const callerActionSchema = z.object({
   }).passthrough().optional()
 }).passthrough();
 
+const toolRequestSchema = z.union([
+  z.object({ name: z.string(), arguments: z.record(z.unknown()) }).passthrough(),
+  z.object({}).strict()
+]).transform((toolRequest) => Object.keys(toolRequest).length === 0 ? undefined : toolRequest);
+
 const modelTurnResultSchema = z.object({
   reply: z.string().optional(),
   assistantAction: z.enum(["NONE", "OFFER_STAFF_TRANSFER", "END_CALL"]).optional(),
-  toolRequest: z.object({ name: z.string(), arguments: z.record(z.unknown()) }).passthrough().optional(),
+  toolRequest: toolRequestSchema.optional(),
   intent: z.string().optional(),
   callerAction: callerActionSchema.optional(),
   collectedFields: z.record(z.unknown()).optional(),
@@ -49,13 +54,18 @@ const modelTurnResponseJsonSchema = {
     reply: { type: "string" },
     assistantAction: { type: "string", enum: ["NONE", "OFFER_STAFF_TRANSFER", "END_CALL"] },
     toolRequest: {
-      type: "object",
-      properties: {
-        name: { type: "string" },
-        arguments: { type: "object", additionalProperties: true }
-      },
-      required: ["name", "arguments"],
-      additionalProperties: false
+      anyOf: [
+        {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            arguments: { type: "object", additionalProperties: true }
+          },
+          required: ["name", "arguments"],
+          additionalProperties: false
+        },
+        { type: "object", maxProperties: 0, additionalProperties: false }
+      ]
     },
     intent: { type: "string" },
     callerAction: {
