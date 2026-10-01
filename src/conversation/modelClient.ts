@@ -24,7 +24,9 @@ export interface ModelTurnResult {
   collectedFields?: Record<string, unknown>;
   updatedFields?: string[];
   confirmedFields?: string[];
+  unclearFields?: string[];
   shouldEndCall?: boolean;
+  confirmationOfferAppointmentId?: unknown;
 }
 
 export interface ModelCallSummary {

@@ -24,6 +24,8 @@ export type NewPatientConfirmationField = typeof newPatientConfirmationFields[nu
 
 export interface NewPatientDataConfirmationState {
   confirmed: Partial<Record<NewPatientConfirmationField, string>>;
+  nameReadBack?: string;
+  unclearFields?: string[];
   prompted?: {
     field: NewPatientConfirmationField;
     value: string;
@@ -48,88 +50,38 @@ export function synchronizeNewPatientDataConfirmation(
   result: ModelTurnResult,
   callerText?: string
 ): void {
-  if (!isNewPatientBooking(session)) {
-    return;
-  }
-
+  if (!isNewPatientBooking(session)) return;
   const state = session.newPatientDataConfirmation ?? { confirmed: {} };
-  const candidateFields = {
-    ...(result.collectedFields ?? {}),
-    ...(result.toolRequest?.arguments ?? {})
-  };
-  const changedFields = new Set<NewPatientConfirmationField>();
-  const promptedAtTurnStart = state.prompted;
-
-  if (state.summaryPrompted && callerText) {
-    if (isAffirmative(callerText)) {
-      state.summaryPrompted = false;
-      state.summaryConfirmed = true;
-      state.summaryAwaitingCorrection = false;
-    } else if (isNegative(callerText)) {
-      state.summaryPrompted = false;
-      state.summaryConfirmed = false;
-      state.summaryAwaitingCorrection = true;
+  const prompted = state.prompted;
+  const candidates = { ...result.toolRequest?.arguments, ...result.collectedFields };
+  if (callerText) {
+    const unclear = new Set(state.unclearFields ?? []);
+    for (const field of result.updatedFields ?? []) {
+      if (textValue(candidates[field])) unclear.delete(field);
     }
+    for (const field of result.unclearFields ?? []) {
+      if ((newPatientDataFields as readonly string[]).includes(field)) unclear.add(field);
+    }
+    state.unclearFields = [...unclear];
   }
-
   for (const field of newPatientConfirmationFields) {
-    const candidate = textValue(candidateFields[field]);
-    if (!candidate) {
-      continue;
-    }
-
-    const confirmedValue = state.confirmed[field];
-    const promptedValue = state.prompted?.field === field ? state.prompted.value : undefined;
-    if (confirmedValue && normalizeValue(confirmedValue) !== normalizeValue(candidate)) {
+    const value = textValue(candidates[field]) ?? fieldValue(session, field);
+    if (!value) continue;
+    if (state.confirmed[field] && !sameValue(state.confirmed[field], value)) {
       delete state.confirmed[field];
-      changedFields.add(field);
-      state.summaryConfirmed = false;
-      state.summaryPrompted = false;
-      state.summaryAwaitingCorrection = false;
     }
-
-    if (promptedAtTurnStart?.field === field
-      && normalizeValue(promptedAtTurnStart.value) !== normalizeValue(candidate)) {
-      state.prompted = {
-        field,
-        value: candidate,
-        kind: "CONFIRM"
-      };
-      state.awaitingCorrectionField = undefined;
-      state.awaitingCorrectionValue = undefined;
-      state.correctionAttempts = {
-        ...state.correctionAttempts,
-        [field]: 0
-      };
-      changedFields.add(field);
-      state.summaryConfirmed = false;
-      state.summaryPrompted = false;
-      state.summaryAwaitingCorrection = false;
+    if (prompted?.field === field && !sameValue(prompted.value, value)) {
+      state.prompted = undefined;
     }
-
-    if (state.awaitingCorrectionField === field
-      && normalizeValue(candidate) !== normalizeValue(state.awaitingCorrectionValue)) {
+    if (state.awaitingCorrectionField === field && !sameValue(state.awaitingCorrectionValue, value)) {
       state.awaitingCorrectionField = undefined;
       state.awaitingCorrectionValue = undefined;
     }
   }
-
-  const prompted = promptedAtTurnStart;
-  if (prompted
-    && state.prompted === prompted
-    && callerText
-    && sameValue(fieldValue(session, prompted.field), prompted.value)) {
-    if (isAffirmative(callerText)
-      || (prompted.kind === "CONFIRM" && isLikelyFieldRestatement(prompted.field, callerText))) {
-      state.confirmed[prompted.field] = prompted.value;
-      state.prompted = undefined;
-      state.awaitingCorrectionField = undefined;
-      state.awaitingCorrectionValue = undefined;
-      if (state.correctionAttempts) {
-        delete state.correctionAttempts[prompted.field];
-      }
-    } else if (isNegative(callerText)) {
-      state.prompted = undefined;
+  // Only a caller turn may confirm a matching, previously spoken read-back.
+  if (callerText && prompted && sameValue(fieldValue(session, prompted.field), prompted.value)) {
+    if ((result.callerAction?.speechAct === "DECLINE" || result.callerAction?.speechAct === "CORRECTION")
+      && !(result.updatedFields ?? []).some((field) => field !== prompted.field)) {
       state.awaitingCorrectionField = prompted.field;
       state.awaitingCorrectionValue = prompted.value;
       state.correctionAttempts = {
@@ -137,83 +89,62 @@ export function synchronizeNewPatientDataConfirmation(
         [prompted.field]: (state.correctionAttempts?.[prompted.field] ?? 0) + 1
       };
       delete state.confirmed[prompted.field];
-    } else if (prompted.kind === "SPELL") {
-      state.prompted = {
-        field: prompted.field,
-        value: prompted.value,
-        kind: "CONFIRM"
-      };
+      state.prompted = undefined;
+    } else if (result.callerAction?.speechAct !== "CORRECTION"
+      && result.confirmedFields?.includes(prompted.field)) {
+      state.confirmed[prompted.field] = prompted.value;
+      state.prompted = undefined;
+      state.awaitingCorrectionField = undefined;
+      state.awaitingCorrectionValue = undefined;
     }
   }
-
-  for (const field of result.confirmedFields ?? []) {
-    if (!isConfirmationField(field) || changedFields.has(field)) {
-      continue;
-    }
-
-    const value = textValue(candidateFields[field]) ?? fieldValue(session, field);
-    const wasPromptedForThisValue = promptedAtTurnStart?.kind === "CONFIRM"
-      && promptedAtTurnStart.field === field
-      && normalizeValue(promptedAtTurnStart.value) === normalizeValue(value);
-    if (value && (wasPromptedForThisValue || normalizeValue(state.confirmed[field]) === normalizeValue(value))) {
-      state.confirmed[field] = value;
-      if (state.prompted?.field === field) {
-        state.prompted = undefined;
-      }
-      if (state.awaitingCorrectionField === field) {
-        state.awaitingCorrectionField = undefined;
-        state.awaitingCorrectionValue = undefined;
-      }
-    }
-  }
-
   session.newPatientDataConfirmation = state;
 }
 
 export function constrainNewPatientDataUpdates(session: CallSession, result: ModelTurnResult): void {
-  if (!isNewPatientBooking(session)) {
-    return;
+  if (!isNewPatientBooking(session)) return;
+  const candidates = { ...result.toolRequest?.arguments, ...result.collectedFields };
+  const declared = new Set(result.updatedFields ?? []);
+  const activeField = session.newPatientDataConfirmation?.prompted?.field
+    ?? session.newPatientDataConfirmation?.awaitingCorrectionField;
+  const accepted = new Set<string>();
+  for (const field of newPatientDataFields) {
+    const value = textValue(candidates[field]);
+    const known = fieldValue(session, field);
+    // Accept all newly supplied fields, including a full name in one answer.
+    // Existing values change only through explicitly declared updates.
+    if (!result.unclearFields?.includes(field)
+      && value && (!known || sameValue(known, value)
+        || (declared.has(field) && (!activeField || activeField === field
+          || result.callerAction?.speechAct === "CORRECTION")))) {
+      accepted.add(field);
+      if (result.collectedFields?.[field] === undefined) {
+        result.collectedFields = { ...result.collectedFields, [field]: value };
+      }
+    } else if (result.collectedFields) {
+      delete result.collectedFields[field];
+    }
+    if (result.toolRequest?.arguments) {
+      const effective = accepted.has(field) ? value : known;
+      if (effective) result.toolRequest.arguments[field] = effective;
+      else delete result.toolRequest.arguments[field];
+    }
   }
+  result.updatedFields = [...declared].filter((field) =>
+    !(newPatientDataFields as readonly string[]).includes(field) || accepted.has(field)
+  );
+}
 
+/** Read a new or corrected name once without adding an approval turn. */
+export function readBackNewPatientName(session: CallSession, reply: string): string {
+  if (!isNewPatientBooking(session)) return reply;
+  const name = [fieldValue(session, "firstName"), fieldValue(session, "lastName")].filter(Boolean).join(" ");
+  if (!name) return reply;
   const state = session.newPatientDataConfirmation ?? { confirmed: {} };
-  const activeField = state.prompted?.field
-    ?? state.awaitingCorrectionField
-    ?? pendingNewPatientConfirmation(session);
-  const modelFields = new Set([
-    ...Object.keys(result.collectedFields ?? {}),
-    ...Object.keys(result.toolRequest?.arguments ?? {})
-  ]);
-  const declaredFields = Array.isArray(result.updatedFields)
-    ? result.updatedFields
-    : [...modelFields];
-  const allowedFields = activeField
-    ? new Set([activeField])
-    : new Set(declaredFields);
-  const acceptedFields = declaredFields.filter((field) => allowedFields.has(field));
-
-  result.updatedFields = acceptedFields;
-  if (result.collectedFields) {
-    for (const field of newPatientDataFields) {
-      if (!allowedFields.has(field)) {
-        delete result.collectedFields[field];
-      }
-    }
-  }
-
-  if (result.toolRequest?.arguments && activeField) {
-    for (const field of newPatientDataFields) {
-      if (field === activeField) {
-        continue;
-      }
-
-      const knownValue = session.collectedFields[field];
-      if (knownValue !== undefined && knownValue !== null && knownValue !== "") {
-        result.toolRequest.arguments[field] = knownValue;
-      } else {
-        delete result.toolRequest.arguments[field];
-      }
-    }
-  }
+  if (sameValue(state.nameReadBack, name)) return reply;
+  state.nameReadBack = name;
+  session.newPatientDataConfirmation = state;
+  return `I have the patient's name as ${name}. ${reply}`;
 }
 
 export function hasAllNewPatientData(session: CallSession): boolean {
@@ -221,7 +152,8 @@ export function hasAllNewPatientData(session: CallSession): boolean {
     return false;
   }
 
-  return newPatientDataFields.every((field) => !!fieldValue(session, field));
+  return !session.newPatientDataConfirmation?.unclearFields?.length
+    && newPatientDataFields.every((field) => !!fieldValue(session, field));
 }
 
 export function pendingNewPatientConfirmation(
@@ -235,7 +167,7 @@ export function pendingNewPatientConfirmation(
   for (const field of newPatientDataFields) {
     const value = fieldValue(session, field);
     if (!value) return undefined;
-    if (isConfirmationField(field)
+    if (isConfirmationField(field) && requiresExplicitConfirmation(field)
       && normalizeValue(state.confirmed[field]) !== normalizeValue(value)) {
       return field;
     }
@@ -280,7 +212,7 @@ export function markNewPatientConfirmationPrompt(
     state.prompted = {
       field,
       value,
-      kind: requiresSpelling(field) ? "SPELL" : "CONFIRM"
+      kind: "CONFIRM"
     };
   }
   session.newPatientDataConfirmation = state;
@@ -294,13 +226,14 @@ export function newPatientDataConfirmationContext(session: CallSession): Record<
   const state = session.newPatientDataConfirmation ?? { confirmed: {} };
   return {
     requiredFields: newPatientDataFields,
-    confirmationRequiredFields: newPatientConfirmationFields,
+    confirmationRequiredFields: newPatientConfirmationFields.filter(requiresExplicitConfirmation),
     values: Object.fromEntries(newPatientDataFields.map((field) => [field, fieldValue(session, field) ?? null])),
     confirmedFields: newPatientConfirmationFields.filter((field) => (
       !!fieldValue(session, field)
         && normalizeValue(state.confirmed[field]) === normalizeValue(fieldValue(session, field))
     )),
     pendingField: pendingNewPatientConfirmation(session) ?? null,
+    unclearFields: state.unclearFields ?? [],
     awaitingCorrectionField: state.awaitingCorrectionField ?? null,
     summaryConfirmed: state.summaryConfirmed === true,
     summaryPending: false
@@ -321,13 +254,8 @@ export function newPatientConfirmationQuestion(
 
   switch (field) {
     case "firstName":
-      return session.newPatientDataConfirmation?.prompted?.kind === "CONFIRM"
-        ? `I have the patient's first name as ${value}, spelled ${spellNameForSpeech(value)}. Is that correct?`
-        : `I have the patient's first name as ${value}. Could you please spell that for me?`;
     case "lastName":
-      return session.newPatientDataConfirmation?.prompted?.kind === "CONFIRM"
-        ? `I have the patient's last name as ${value}, spelled ${spellNameForSpeech(value)}. Is that correct?`
-        : `I have the patient's last name as ${value}. Could you please spell that for me?`;
+      return `I have the patient's name as ${fieldValue(session, "firstName") ?? ""} ${fieldValue(session, "lastName") ?? ""}. Is that correct?`;
     case "dob":
       return `I have the patient's date of birth as ${value}. Is that correct?`;
     case "patientEmail":
@@ -381,20 +309,8 @@ function sameValue(left: string | undefined, right: string): boolean {
   return !!left && normalizeValue(left) === normalizeValue(right);
 }
 
-function isAffirmative(value: string): boolean {
-  return /^(yes|yeah|yep|correct|right|exactly|confirmed|okay|ok|sounds good|looks good)([\s,.!?]|$)/i.test(value.trim());
-}
-
-function isNegative(value: string): boolean {
-  return /^(no|nope|incorrect|wrong|not correct|that's wrong|that is wrong)([\s,.!?]|$)/i.test(value.trim());
-}
-
-function requiresSpelling(field: NewPatientConfirmationField): boolean {
-  return field === "firstName" || field === "lastName";
-}
-
-function spellNameForSpeech(value: string): string {
-  return Array.from(value.trim()).join(" ");
+function requiresExplicitConfirmation(field: NewPatientDataField): boolean {
+  return field === "patientEmail" || field === "patientPhone";
 }
 
 function phoneConfirmationQuestion(session: CallSession, value: string): string {
@@ -438,24 +354,5 @@ function spellEmailForSpeech(value: string): string {
     .join("")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function isLikelyFieldRestatement(field: NewPatientConfirmationField, value: string): boolean {
-  const normalized = value.trim().toLowerCase();
-  if (!normalized || /^(what|which|sorry|huh|repeat|pardon)\b/.test(normalized)) {
-    return false;
-  }
-
-  switch (field) {
-    case "dob":
-      return /\d|january|february|march|april|may|june|july|august|september|october|november|december/.test(normalized);
-    case "patientEmail":
-      return /@|\bat\b|\bdot\b|gmail|yahoo|outlook|\.com\b/.test(normalized);
-    case "patientPhone":
-      return (normalized.match(/\d/g) ?? []).length >= 7;
-    case "firstName":
-    case "lastName":
-      return /^[a-z](?:[a-z\s'-]{1,40})$/i.test(normalized);
-  }
 }
 

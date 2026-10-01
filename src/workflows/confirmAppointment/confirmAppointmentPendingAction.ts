@@ -48,6 +48,29 @@ export function hydrateConfirmAppointmentSelections(session: CallSession): void 
   hydrateConfirmAppointmentOptionsFromLastLookup(session);
 }
 
+/** Record an offer only for an appointment supplied by a successful, verified lookup. */
+export function recordConfirmAppointmentOffer(session: CallSession, result: ModelTurnResult): void {
+  const offeredId = normalizeAppointmentId(result.confirmationOfferAppointmentId);
+  if (!offeredId || !result.reply || result.toolRequest
+    || session.workflowState?.context?.canDisclosePatientData !== true) return;
+
+  const lookup = session.lastToolResults.GET_NEXT_APPOINTMENT as ToolResult | undefined;
+  if (lookup?.ok !== true) return;
+  storeConfirmAppointmentOptionsFromLookup(session, lookup);
+  const option = session.appointmentSelections.CONFIRM_APPOINTMENT?.options.find(
+    (candidate) => normalizeAppointmentId(candidate.appointmentId) === offeredId
+      && candidate.alreadyConfirmed !== true
+  );
+  if (!option) return;
+
+  session.pendingActions.CONFIRM_APPOINTMENT = {
+    appointmentId: option.appointmentId,
+    status: "AWAITING_CALLER_CONFIRMATION",
+    createdAt: new Date().toISOString(),
+    promptedAt: new Date().toISOString()
+  };
+}
+
 export function promoteConfirmAppointmentPendingAction(session: CallSession, result?: ModelTurnResult): void {
   syncSelectedConfirmAppointment(session, modelResultToolRequest(result), result);
 

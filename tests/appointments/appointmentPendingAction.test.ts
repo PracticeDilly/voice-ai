@@ -5,8 +5,10 @@ import {
   hydrateConfirmAppointmentSelections,
   prepareConfirmAppointmentTool,
   promoteConfirmAppointmentPendingAction,
+  recordConfirmAppointmentOffer,
   syncConfirmAppointmentFromLookup
 } from "../../src/workflows/confirmAppointment/confirmAppointmentPendingAction.js";
+import { confirmAppointmentWorkflow } from "../../src/workflows/confirmAppointment/confirmAppointmentWorkflow.js";
 import { CallSession } from "../../src/calls/callSession.js";
 
 test("creates awaiting pending confirmation from confirm-intent appointment lookup", () => {
@@ -23,6 +25,43 @@ test("creates awaiting pending confirmation from confirm-intent appointment look
 
   assert.deepEqual(callSession.pendingActions.CONFIRM_APPOINTMENT?.appointmentId, 501);
   assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "AWAITING_CALLER_CONFIRMATION");
+});
+
+test("records a verified confirmation offer and honors acceptance from stale lookup intent", () => {
+  const callSession = session();
+  callSession.currentIntent = "NEXT_APPOINTMENT";
+  callSession.workflowState = {
+    contractVersion: 1,
+    workflow: "NEXT_APPOINTMENT",
+    state: "COMPLETED",
+    allowedActions: [],
+    context: { canDisclosePatientData: true, selectedAppointmentId: 501, alreadyConfirmed: false }
+  };
+  callSession.lastToolResults.GET_NEXT_APPOINTMENT = {
+    name: "GET_NEXT_APPOINTMENT",
+    ok: true,
+    data: { upcomingAppointments: [appointment(501, "Friday at 11:30 AM")] }
+  };
+  recordConfirmAppointmentOffer(callSession, {
+    reply: "Would you like me to confirm it?",
+    confirmationOfferAppointmentId: 501
+  });
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "AWAITING_CALLER_CONFIRMATION");
+
+  const acceptance = confirmAppointmentWorkflow.prepareModelResult!(callSession, "Yes, please", {
+    intent: "NEXT_APPOINTMENT",
+    callerAction: {
+      speechAct: "AUTHORIZATION",
+      workflowIntent: "NEXT_APPOINTMENT",
+      requestedAction: "CONFIRM_SELECTED_APPOINTMENT",
+      authorization: { stateChangingAction: "CONFIRM_APPOINTMENT", isExplicit: true }
+    },
+    toolRequest: { name: "CONFIRM_APPOINTMENT", arguments: { appointmentId: 501 } }
+  });
+  assert.equal(acceptance.intent, "CONFIRM_APPOINTMENT");
+  callSession.currentIntent = acceptance.intent;
+  confirmAppointmentWorkflow.modelLifecycle?.synchronizeResult?.(callSession, acceptance);
+  assert.equal(callSession.pendingActions.CONFIRM_APPOINTMENT?.status, "READY_TO_EXECUTE");
 });
 
 test("does not create pending confirmation for read-only next appointment intent", () => {

@@ -22,6 +22,7 @@ import {
   hasAllNewPatientData,
   isNewPatientBooking,
   newPatientDataFields,
+  readBackNewPatientName,
   markNewPatientConfirmationPrompt,
   newPatientConfirmationQuestion,
   pendingNewPatientConfirmation
@@ -83,13 +84,10 @@ export function createBookAppointmentWorkflow(
     if (choice === "NEW_PATIENT") {
       session.awaitingBookingPatientChoice = false;
       initializeNewPatientBooking(session);
-      if (typeof session.collectedFields.firstName === "string" && session.collectedFields.firstName.trim()) {
-        markNewPatientConfirmationPrompt(session, "firstName");
-      }
+      const collection = newPatientDataConfirmationDecision(session, result);
       return {
-        reply: session.newPatientDataConfirmation?.prompted?.field === "firstName"
-          ? newPatientConfirmationQuestion(session, "firstName")
-          : "Great. What is the patient's first name?",
+        reply: readBackNewPatientName(session, collection?.overrideResult?.reply
+          ?? "Great. What is the patient's full name?"),
         source: "patient-status-choice"
       };
     }
@@ -105,12 +103,13 @@ export function createBookAppointmentWorkflow(
     session.bookingPatientChoice = choice;
     return !session.collectedFields.firstName
       ? {
-        reply: "Please say and spell the patient's first name so I can find the right record.",
+        reply: "What is the patient's first name so I can find the right record?",
         source: "returning-patient-name-prompt"
       }
       : undefined;
   },
   prepareReply(session, reply) {
+    reply = readBackNewPatientName(session, reply);
     if (session.workflowState?.workflow !== "BOOK_APPOINTMENT") {
       return reply;
     }
@@ -338,6 +337,20 @@ function newPatientDataConfirmationDecision(
   }
 
   const pendingField = pendingNewPatientConfirmation(session);
+  const unclearField = (result.unclearFields ?? session.newPatientDataConfirmation?.unclearFields)?.find((field) =>
+    (newPatientDataFields as readonly string[]).includes(field)
+  );
+  if (unclearField) {
+    return { overrideResult: {
+      ...result,
+      reply: result.unclearFields?.includes(unclearField) && result.reply
+        ? result.reply : "Could you please clarify the patient's "
+          + ({ firstName: "first name", lastName: "last name", dob: "date of birth",
+            gender: "gender", patientEmail: "email address", patientPhone: "phone number" }[unclearField] ?? "details") + "?",
+      toolRequest: undefined,
+      shouldEndCall: false
+    } };
+  }
   if (pendingField) {
     markNewPatientConfirmationPrompt(session, pendingField);
     return {
@@ -357,7 +370,7 @@ function newPatientDataConfirmationDecision(
       && !(field === "patientPhone" && session.fromNumber)
     ));
     const questions: Record<string, string> = {
-      firstName: "What is the patient's first name?",
+      firstName: "What is the patient's full name?",
       lastName: "What is the patient's last name?",
       dob: "What is the patient's date of birth?",
       gender: "What gender should I record for the patient?",

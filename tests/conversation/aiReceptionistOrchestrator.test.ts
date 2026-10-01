@@ -36,7 +36,7 @@ test("asks once whether a booking caller is new or returning and honors the new 
   assert.equal(session.awaitingBookingPatientChoice, true);
   assert.equal(session.collectedFields.bookingReason, "cleaning");
   const second = await orchestrator.handleCallerText(session, "I'm a new patient", { recordCallerTurn: false });
-  assert.match(second.reply, /first name/i);
+  assert.match(second.reply, /full name/i);
   assert.equal(session.newPatientBookingCandidate, true);
   assert.equal(session.bookingPatientChoice, "NEW_PATIENT");
   assert.equal(session.workflowState?.state, "NEEDS_NEW_PATIENT_DATA");
@@ -56,7 +56,8 @@ test("a returning booking caller is asked to spell their name without being clas
   } });
   await orchestrator.handleCallerText(session, "I need an appointment", { recordCallerTurn: false });
   const choice = await orchestrator.handleCallerText(session, "I'm a returning patient", { recordCallerTurn: false });
-  assert.match(choice.reply, /say and spell/i);
+  assert.match(choice.reply, /first name/i);
+  assert.doesNotMatch(choice.reply, /spell/i);
   assert.equal(session.bookingPatientChoice, "RETURNING_PATIENT");
   assert.equal(session.newPatientBookingCandidate, undefined);
 });
@@ -178,7 +179,7 @@ test("ends after the caller declines further help following the receptionist's c
   });
   const orchestrator = new AiReceptionistOrchestrator(sessions);
   Object.defineProperty(orchestrator, "modelClient", { value: {
-    async nextTurn() { throw new Error("closing response should be handled deterministically"); }
+    async nextTurn() { return { callerAction: { speechAct: "GOODBYE", requestedAction: "NONE" } }; }
   } });
 
   const outcome = await orchestrator.handleCallerText(session, "No. Thank you.", { recordCallerTurn: false });
@@ -382,21 +383,21 @@ test("does not switch to new-patient booking from affirmative wording without mo
   assert.equal(session.workflowState?.state, "NEEDS_NEW_PATIENT_CONFIRMATION");
 });
 
-test("ends the call deterministically when the caller asks to drop it", async () => {
+test("ends the call from a structured caller goodbye", async () => {
   const sessions = new CallSessionStore();
   const orchestrator = new AiReceptionistOrchestrator(sessions);
   const session = sessions.create({ callSid: "CA-end-call", officeCode: "TEST" });
   Object.defineProperty(orchestrator, "modelClient", { value: {
     async nextTurn() {
-      throw new Error("the model must not be called for an explicit end-call request");
+      return { callerAction: { speechAct: "GOODBYE", requestedAction: "NONE" } };
     }
   } });
 
-  const outcome = await orchestrator.handleCallerText(session, "Please drop the call.", { recordCallerTurn: false });
+  const outcome = await orchestrator.handleCallerText(session, "No. Thank you. Thanks a lot.", { recordCallerTurn: false });
 
   assert.equal(outcome.shouldEndSession, true);
   assert.equal(outcome.shouldTransferToStaff, false);
-  assert.match(outcome.reply, /end the call/i);
+  assert.match(outcome.reply, /thank you for calling/i);
 });
 
 test("transfers immediately when the caller explicitly requests staff", async () => {

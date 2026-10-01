@@ -74,8 +74,17 @@ export function assistantTextOffersStaffTransfer(assistantText: string): boolean
 }
 
 export function callerActionDeclinesStaffTransfer(result?: ModelTurnResult): boolean {
+  // The caller is answering a pending transfer offer; the broader workflow
+  // intent may still be NEXT_APPOINTMENT or BOOK_APPOINTMENT.
   return result?.callerAction?.speechAct === "DECLINE"
-    && result.callerAction.workflowIntent === "TRANSFER_TO_STAFF";
+    && (!result.callerAction.requestedAction || result.callerAction.requestedAction === "NONE"
+      || result.callerAction.requestedAction === "TRANSFER_TO_STAFF");
+}
+
+export function callerActionEndsConversation(result?: ModelTurnResult): boolean {
+  return result?.callerAction?.speechAct === "GOODBYE"
+    && !result.toolRequest
+    && (!result.callerAction.requestedAction || result.callerAction.requestedAction === "NONE");
 }
 
 export function callerTextAsksOfficeHours(callerText: string): boolean {

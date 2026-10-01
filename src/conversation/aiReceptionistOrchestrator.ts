@@ -7,13 +7,13 @@ import { logger } from "../utils/logger.js";
 import { ConversationWorkflowRegistry } from "../workflows/shared/workflowRegistry.js";
 import { extractWorkflowEnvelope } from "../workflows/workflowState.js";
 import { ModelClient, ModelTurnResult } from "./modelClient.js";
+import { recordConfirmAppointmentOffer } from "../workflows/confirmAppointment/confirmAppointmentPendingAction.js";
 import {
   assistantTextOffersStaffTransfer,
   callerActionExplicitlyAuthorizesStaffTransfer,
   callerActionDeclinesStaffTransfer,
   callerTextAsksOfficeHours,
-  callerExplicitlyEndsCall,
-  callerDeclinesFurtherAssistance,
+  callerActionEndsConversation,
   callerTextRequestsStaffTransfer,
 } from "../workflows/shared/callerActionDecision.js";
 
@@ -131,6 +131,15 @@ export class AiReceptionistOrchestrator {
     };
   }
 
+  private endConversation(): ConversationTurnOutcome {
+    return {
+      reply: "Thank you for calling. Have a great day!",
+      assistantMetadata: { intent: "GOODBYE", source: "caller-action-goodbye" },
+      shouldEndSession: true,
+      shouldTransferToStaff: false
+    };
+  }
+
   private async processCallerText(
     session: CallSession,
     callerText: string,
@@ -142,16 +151,6 @@ export class AiReceptionistOrchestrator {
     }
 
     const firstModelStartedAt = Date.now();
-    if (callerExplicitlyEndsCall(callerText)) {
-      const reply = "Understood. I will end the call now. Thank you for calling.";
-      return {
-        reply,
-        assistantMetadata: { intent: "GOODBYE", source: "deterministic-caller-end" },
-        shouldEndSession: true,
-        shouldTransferToStaff: false
-      };
-    }
-
     if (session.pendingActions.TRANSFER_TO_STAFF) {
       let transferDecision: ModelTurnResult | undefined;
       try {
@@ -162,6 +161,10 @@ export class AiReceptionistOrchestrator {
           officeCode: session.officeCode,
           error: String(error)
         });
+      }
+      if (callerActionEndsConversation(transferDecision)) {
+        delete session.pendingActions.TRANSFER_TO_STAFF;
+        return this.endConversation();
       }
       if (session.pendingActions.TRANSFER_TO_STAFF.status === "AWAITING_CALLER_CONFIRMATION"
         && callerActionExplicitlyAuthorizesStaffTransfer(transferDecision)) {
@@ -180,17 +183,6 @@ export class AiReceptionistOrchestrator {
         reply: "Would you like me to transfer you to our office staff? Please say yes or no.",
         assistantMetadata: { intent: "TRANSFER_TO_STAFF", source: "transfer-confirmation" },
         shouldEndSession: false,
-        shouldTransferToStaff: false
-      };
-    }
-
-    const previousAssistantTextForClosing = [...session.transcript].reverse()
-      .find((turn) => turn.speaker === "assistant")?.text ?? "";
-    if (callerDeclinesFurtherAssistance(callerText, previousAssistantTextForClosing)) {
-      return {
-        reply: "Thank you for calling. Have a great day!",
-        assistantMetadata: { intent: "GOODBYE", source: "caller-declined-further-assistance" },
-        shouldEndSession: true,
         shouldTransferToStaff: false
       };
     }
@@ -221,6 +213,9 @@ export class AiReceptionistOrchestrator {
     }
 
     let firstResult = await this.modelClient.nextTurn(session, callerText);
+    if (callerActionEndsConversation(firstResult)) {
+      return this.endConversation();
+    }
     firstResult = this.workflowRegistry.prepareModelResult(session, callerText, firstResult);
     const bookingEntryDecision = this.workflowRegistry.handleBookingEntry(session, callerText, firstResult);
     if (bookingEntryDecision) {
@@ -270,7 +265,7 @@ export class AiReceptionistOrchestrator {
     const transferToStaff = false;
     const transferOffer = assistantTextOffersStaffTransfer(reply);
     // A model flag is not evidence that the caller ended the conversation.
-    // Explicit caller goodbyes and confirmed staff transfers return above.
+    // Structured caller goodbyes and confirmed staff transfers return above.
     const shouldEndSession = false;
     if (transferOffer) {
       session.pendingActions.TRANSFER_TO_STAFF = {
@@ -304,6 +299,7 @@ export class AiReceptionistOrchestrator {
       };
     }
     this.workflowRegistry.synchronizeModelData(session, finalResult);
+    recordConfirmAppointmentOffer(session, finalResult);
 
     return {
       reply,

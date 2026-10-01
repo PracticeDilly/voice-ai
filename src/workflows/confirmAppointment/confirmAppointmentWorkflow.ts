@@ -4,6 +4,7 @@ import { normalizeAppointmentId } from "../../appointments/appointmentId.js";
 import { retryToolWithKnownRequiredField } from "../shared/workflowFieldSupport.js";
 import {
   callerActionIsConfirmationQuestion,
+  callerActionExplicitlyAuthorizesConfirmation,
   callerActionRequestsStaffTransfer
 } from "../shared/callerActionDecision.js";
 import { ConversationWorkflow, ToolPolicyDecision } from "../shared/workflowTypes.js";
@@ -26,6 +27,16 @@ const toolAdapter = new ConfirmAppointmentToolAdapter();
 export const confirmAppointmentWorkflow: ConversationWorkflow = {
   name: "CONFIRM_APPOINTMENT",
   toolAdapter,
+  prepareModelResult(_session, _callerText, result) {
+    // Tool/action intent wins over a stale conversational intent from lookup.
+    if (result.toolRequest?.name === "CONFIRM_APPOINTMENT"
+      || callerActionExplicitlyAuthorizesConfirmation(result)
+      || (result.callerAction?.speechAct === "REQUEST"
+        && result.callerAction.requestedAction === "CONFIRM_SELECTED_APPOINTMENT")) {
+      return { ...result, intent: "CONFIRM_APPOINTMENT" };
+    }
+    return result;
+  },
   modelLifecycle: {
     synchronizeResult(session, result) {
       promoteConfirmAppointmentPendingAction(session, result);
