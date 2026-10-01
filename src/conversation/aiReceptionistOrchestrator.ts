@@ -9,7 +9,7 @@ import { extractWorkflowEnvelope } from "../workflows/workflowState.js";
 import { ModelClient, ModelTurnResult } from "./modelClient.js";
 import { recordConfirmAppointmentOffer } from "../workflows/confirmAppointment/confirmAppointmentPendingAction.js";
 import {
-  assistantTextOffersStaffTransfer,
+  callerActionRequestsStaffTransfer,
   callerActionExplicitlyAuthorizesStaffTransfer,
   callerActionDeclinesStaffTransfer,
   callerTextAsksOfficeHours,
@@ -167,7 +167,8 @@ export class AiReceptionistOrchestrator {
         return this.endConversation();
       }
       if (session.pendingActions.TRANSFER_TO_STAFF.status === "AWAITING_CALLER_CONFIRMATION"
-        && callerActionExplicitlyAuthorizesStaffTransfer(transferDecision)) {
+        && (callerActionExplicitlyAuthorizesStaffTransfer(transferDecision)
+          || callerActionRequestsStaffTransfer(transferDecision))) {
         return this.directStaffTransfer(session);
       }
       if (callerActionDeclinesStaffTransfer(transferDecision)) {
@@ -213,6 +214,11 @@ export class AiReceptionistOrchestrator {
     }
 
     let firstResult = await this.modelClient.nextTurn(session, callerText);
+    // A caller's structured request for staff takes precedence over a model
+    // generated goodbye or a workflow's recovery wording.
+    if (callerActionRequestsStaffTransfer(firstResult)) {
+      return this.directStaffTransfer(session);
+    }
     if (callerActionEndsConversation(firstResult)) {
       return this.endConversation();
     }
@@ -263,17 +269,19 @@ export class AiReceptionistOrchestrator {
       finalResult.reply ?? "I am sorry, I could not complete that request."
     );
     const transferToStaff = false;
-    const transferOffer = assistantTextOffersStaffTransfer(reply);
-    // A model flag is not evidence that the caller ended the conversation.
-    // Structured caller goodbyes and confirmed staff transfers return above.
-    const shouldEndSession = false;
-    if (transferOffer) {
+    const transferOffer = finalResult.assistantAction === "OFFER_STAFF_TRANSFER";
+    if (transferOffer && !session.pendingActions.TRANSFER_TO_STAFF) {
       session.pendingActions.TRANSFER_TO_STAFF = {
         status: "AWAITING_CALLER_CONFIRMATION",
         reason: "assistant-offered-transfer",
         createdAt: new Date().toISOString()
       };
     }
+    const state = session.workflowState?.state?.toUpperCase();
+    const workflowAllowsAssistantEnd = !state || state === "COMPLETED" || state === "FAILED";
+    const shouldEndSession = finalResult.assistantAction === "END_CALL"
+      && workflowAllowsAssistantEnd
+      && !session.pendingActions.TRANSFER_TO_STAFF;
 
     logger.info("AI turn completed", {
       callSid: session.callSid,
@@ -283,7 +291,7 @@ export class AiReceptionistOrchestrator {
       shouldEndSession,
       shouldTransferToStaff: transferToStaff,
       workflowStateSummary: this.workflowStateSummary(session),
-      modelMarkedEndCall: finalResult.shouldEndCall === true,
+      assistantAction: finalResult.assistantAction ?? "NONE",
       firstModelDurationMs,
       totalDurationMs: Date.now() - turnStartedAt
     });

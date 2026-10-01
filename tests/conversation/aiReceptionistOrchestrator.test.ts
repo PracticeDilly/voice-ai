@@ -169,6 +169,26 @@ test("does not end or transfer a caller who only questions a failed lookup", asy
   assert.equal(outcome.shouldTransferToStaff, false);
 });
 
+test("ends when the receptionist gives a terminal goodbye and the model marks the turn complete", async () => {
+  const sessions = new CallSessionStore();
+  const session = sessions.create({ callSid: "CA-terminal-goodbye", officeCode: "TEST" });
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      return {
+        intent: "BOOK_APPOINTMENT",
+        reply: "If you need anything else, please call us. Have a great day!",
+        assistantAction: "END_CALL"
+      };
+    }
+  } });
+
+  const outcome = await orchestrator.handleCallerText(session, "That's okay", { recordCallerTurn: false });
+
+  assert.equal(outcome.shouldEndSession, true);
+  assert.equal(outcome.shouldTransferToStaff, false);
+});
+
 test("ends after the caller declines further help following the receptionist's closing question", async () => {
   const sessions = new CallSessionStore();
   const session = sessions.create({ callSid: "CA-closing-no-thanks", officeCode: "TEST" });
@@ -447,6 +467,7 @@ test("transfers after a model offered staff and the caller says Yeah. Sure.", as
       }
       return {
         intent: "insurance_questions",
+        assistantAction: "OFFER_STAFF_TRANSFER",
         reply: "I don't have the specific list of insurance plans supported by our office. Would you like me to connect you with a staff member who can provide that information?"
       };
     }
@@ -470,6 +491,59 @@ test("transfers after a model offered staff and the caller says Yeah. Sure.", as
   assert.equal(session.pendingActions.TRANSFER_TO_STAFF, undefined);
 });
 
+test("treats willingness to speak with the office as acceptance of a pending offer", async () => {
+  const sessions = new CallSessionStore();
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  const session = sessions.create({ callSid: "CA-office-transfer-acceptance", officeCode: "TEST" });
+  let transfers = 0;
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      return { callerAction: {
+        speechAct: "AUTHORIZATION",
+        workflowIntent: "TRANSFER_TO_STAFF",
+        requestedAction: "TRANSFER_TO_STAFF",
+        authorization: { stateChangingAction: "TRANSFER_TO_STAFF", isExplicit: true }
+      } };
+    }
+  } });
+  Object.defineProperty(orchestrator, "toolExecutor", { value: {
+    async execute() {
+      transfers += 1;
+      return { name: "TRANSFER_TO_STAFF", ok: true };
+    }
+  } });
+  session.pendingActions.TRANSFER_TO_STAFF = {
+    status: "AWAITING_CALLER_CONFIRMATION",
+    reason: "assistant-offered-transfer",
+    createdAt: new Date().toISOString()
+  };
+
+  const outcome = await orchestrator.handleCallerText(session, "Okay, I'll talk to the office.", { recordCallerTurn: false });
+
+  assert.equal(transfers, 1);
+  assert.equal(outcome.shouldTransferToStaff, true);
+  assert.equal(outcome.shouldEndSession, true);
+  assert.equal(session.pendingActions.TRANSFER_TO_STAFF, undefined);
+});
+
+test("tracks an offer to speak with someone at the office as a pending transfer", async () => {
+  const sessions = new CallSessionStore();
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  const session = sessions.create({ callSid: "CA-speak-office-offer", officeCode: "TEST" });
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      return {
+        reply: "A colleague can help with more options.",
+        assistantAction: "OFFER_STAFF_TRANSFER"
+      };
+    }
+  } });
+
+  await orchestrator.handleCallerText(session, "Could I book an appointment?", { recordCallerTurn: false });
+
+  assert.equal(session.pendingActions.TRANSFER_TO_STAFF?.status, "AWAITING_CALLER_CONFIRMATION");
+});
+
 test("clears a model offered transfer when the caller declines", async () => {
   const sessions = new CallSessionStore();
   const orchestrator = new AiReceptionistOrchestrator(sessions);
@@ -481,6 +555,7 @@ test("clears a model offered transfer when the caller declines", async () => {
       }
       return {
         intent: "insurance_questions",
+        assistantAction: "OFFER_STAFF_TRANSFER",
         reply: "Would you like me to connect you with our office staff?"
       };
     }
@@ -506,7 +581,10 @@ test("keeps the transfer offer pending when the caller's answer is unclear", asy
   Object.defineProperty(orchestrator, "modelClient", { value: {
     async nextTurn(_session: CallSession, callerText: string) {
       if (callerText === "Can you help with insurance?") {
-        return { reply: "Would you like me to connect you with our office staff?" };
+        return {
+          assistantAction: "OFFER_STAFF_TRANSFER",
+          reply: "Would you like me to connect you with our office staff?"
+        };
       }
       return { callerAction: { speechAct: "UNKNOWN", workflowIntent: "TRANSFER_TO_STAFF" } };
     }

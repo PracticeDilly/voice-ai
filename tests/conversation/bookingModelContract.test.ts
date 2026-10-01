@@ -198,7 +198,11 @@ function mockModel(results: unknown[]) {
     async create(request: unknown) {
       requests.push(request);
       assert.ok(results.length, "unexpected additional model request");
-      return { choices: [{ message: { content: JSON.stringify(results.shift()) } }] };
+      const result = results.shift();
+      const modelTurn = result && typeof result === "object" && !Array.isArray(result)
+        ? { updatedFields: [], confirmedFields: [], unclearFields: [], ...(result as Record<string, unknown>) }
+        : result;
+      return { choices: [{ message: { content: JSON.stringify(modelTurn) } }] };
     }
   } } } });
   return { client, requests };

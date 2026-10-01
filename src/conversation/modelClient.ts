@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { z } from "zod";
 import { config } from "../config/env.js";
 import { ToolRequest } from "../backend/springBootClient.js";
 import { CallSession } from "../calls/callSession.js";
@@ -16,8 +17,91 @@ import { bookingPatientType } from "../workflows/shared/patientType.js";
 import { logger } from "../utils/logger.js";
 import { newPatientDataConfirmationContext } from "../workflows/shared/newPatientDataConfirmation.js";
 
+const callerActionSchema = z.object({
+  speechAct: z.enum(["QUESTION", "REQUEST", "AUTHORIZATION", "DECLINE", "CORRECTION", "ACKNOWLEDGEMENT", "GOODBYE", "UNKNOWN"]).optional(),
+  workflowIntent: z.enum(["NEXT_APPOINTMENT", "CONFIRM_APPOINTMENT", "BOOK_APPOINTMENT", "TRANSFER_TO_STAFF", "OFFICE_INFORMATION", "UNKNOWN"]).optional(),
+  requestedAction: z.enum(["LOOKUP_APPOINTMENTS", "CONFIRM_SELECTED_APPOINTMENT", "BOOK_APPOINTMENT", "TRANSFER_TO_STAFF", "NONE"]).optional(),
+  patientTypeChoice: z.enum(["NEW_PATIENT", "RETURNING_PATIENT"]).nullable().optional(),
+  authorization: z.object({
+    stateChangingAction: z.enum(["CONFIRM_APPOINTMENT", "BOOK_APPOINTMENT", "CONTINUE_AS_NEW_PATIENT", "TRANSFER_TO_STAFF"]).nullable().optional(),
+    isExplicit: z.boolean().optional(),
+    selectedAppointmentReference: z.record(z.unknown()).nullable().optional()
+  }).passthrough().optional()
+}).passthrough();
+
+const modelTurnResultSchema = z.object({
+  reply: z.string().optional(),
+  assistantAction: z.enum(["NONE", "OFFER_STAFF_TRANSFER", "END_CALL"]).optional(),
+  toolRequest: z.object({ name: z.string(), arguments: z.record(z.unknown()) }).passthrough().optional(),
+  intent: z.string().optional(),
+  callerAction: callerActionSchema.optional(),
+  collectedFields: z.record(z.unknown()).optional(),
+  updatedFields: z.array(z.string()),
+  confirmedFields: z.array(z.string()),
+  unclearFields: z.array(z.string()),
+  shouldEndCall: z.boolean().optional(),
+  confirmationOfferAppointmentId: z.unknown().optional()
+}).passthrough();
+
+const modelTurnResponseJsonSchema = {
+  type: "object",
+  properties: {
+    reply: { type: "string" },
+    assistantAction: { type: "string", enum: ["NONE", "OFFER_STAFF_TRANSFER", "END_CALL"] },
+    toolRequest: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        arguments: { type: "object", additionalProperties: true }
+      },
+      required: ["name", "arguments"],
+      additionalProperties: false
+    },
+    intent: { type: "string" },
+    callerAction: {
+      type: "object",
+      properties: {
+        speechAct: { type: "string", enum: ["QUESTION", "REQUEST", "AUTHORIZATION", "DECLINE", "CORRECTION", "ACKNOWLEDGEMENT", "GOODBYE", "UNKNOWN"] },
+        workflowIntent: { type: "string", enum: ["NEXT_APPOINTMENT", "CONFIRM_APPOINTMENT", "BOOK_APPOINTMENT", "TRANSFER_TO_STAFF", "OFFICE_INFORMATION", "UNKNOWN"] },
+        requestedAction: { type: "string", enum: ["LOOKUP_APPOINTMENTS", "CONFIRM_SELECTED_APPOINTMENT", "BOOK_APPOINTMENT", "TRANSFER_TO_STAFF", "NONE"] },
+        patientTypeChoice: { type: "string", enum: ["NEW_PATIENT", "RETURNING_PATIENT"] },
+        authorization: {
+          type: "object",
+          properties: {
+            stateChangingAction: { type: "string", enum: ["CONFIRM_APPOINTMENT", "BOOK_APPOINTMENT", "CONTINUE_AS_NEW_PATIENT", "TRANSFER_TO_STAFF"] },
+            isExplicit: { type: "boolean" },
+            selectedAppointmentReference: { type: "object", additionalProperties: true }
+          },
+          additionalProperties: false
+        }
+      },
+      additionalProperties: false
+    },
+    collectedFields: { type: "object", additionalProperties: true },
+    updatedFields: { type: "array", items: { type: "string" } },
+    confirmedFields: { type: "array", items: { type: "string" } },
+    unclearFields: { type: "array", items: { type: "string" } },
+    shouldEndCall: { type: "boolean" },
+    confirmationOfferAppointmentId: {}
+  },
+  required: ["updatedFields", "confirmedFields", "unclearFields"],
+  additionalProperties: false
+} as const;
+
+type ModelTurnRepairCounts = { responseShape: number; bookingContract: number };
+
+class ModelTurnResponseValidationError extends Error {
+  constructor(
+    readonly issueDetails: Array<{ field: string; expected: string }>,
+    readonly rejectedResponse: unknown
+  ) {
+    super(issueDetails.map(({ field, expected }) => `${field}: ${expected}`).join("; "));
+  }
+}
+
 export interface ModelTurnResult {
   reply?: string;
+  assistantAction?: "NONE" | "OFFER_STAFF_TRANSFER" | "END_CALL";
   toolRequest?: ToolRequest;
   intent?: string;
   callerAction?: CallerActionDecision;
@@ -241,29 +325,46 @@ export class ModelClient {
   }
 
   private parseModelResult(content: string): ModelTurnResult {
+    let response: unknown;
     try {
-      const parsed = JSON.parse(content) as ModelTurnResult;
-      if (!parsed.toolRequest?.name?.trim()) {
-        delete parsed.toolRequest;
-      }
-      return parsed;
+      response = JSON.parse(content) as unknown;
     } catch {
-      return {
-        reply: "I am sorry, I had trouble understanding that. Let me connect you with the office.",
-        toolRequest: {
-          name: "TRANSFER_TO_STAFF",
-          arguments: {}
-        },
-        intent: "TRANSFER_TO_STAFF"
-      };
+      throw new ModelTurnResponseValidationError(
+        [{ field: "$", expected: "valid JSON matching the model-turn response schema" }],
+        content
+      );
     }
+
+    const parsed = modelTurnResultSchema.safeParse(response);
+    if (!parsed.success) {
+      throw new ModelTurnResponseValidationError(
+        parsed.error.issues.map((issue) => ({
+          field: issue.path.length ? issue.path.join(".") : "$",
+          expected: issue.message
+        })),
+        response
+      );
+    }
+
+    const result = parsed.data as ModelTurnResult;
+    if (result.toolRequest && !result.toolRequest.name.trim()) {
+      delete result.toolRequest;
+    }
+    return result;
   }
 
   private async requestModelContent(session: CallSession, payload: Record<string, unknown>): Promise<string> {
     const response = await this.client.chat.completions.create({
       model: config.OPENAI_MODEL,
       temperature: 0.2,
-      response_format: { type: "json_object" },
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "voice_ai_model_turn",
+          strict: false,
+          schema: modelTurnResponseJsonSchema
+        }
+      },
       messages: [
         {
           role: "system",
@@ -281,9 +382,39 @@ export class ModelClient {
     return response.choices[0]?.message?.content ?? "{}";
   }
 
-  private async createModelTurn(session: CallSession, payload: Record<string, unknown>, repairAttempt = 0): Promise<ModelTurnResult> {
+  private async createModelTurn(
+    session: CallSession,
+    payload: Record<string, unknown>,
+    repairCounts: ModelTurnRepairCounts = { responseShape: 0, bookingContract: 0 }
+  ): Promise<ModelTurnResult> {
     const content = await this.requestModelContent(session, payload);
-    const result = this.parseModelResult(content);
+    let result: ModelTurnResult;
+    try {
+      result = this.parseModelResult(content);
+    } catch (error) {
+      if (!(error instanceof ModelTurnResponseValidationError)) throw error;
+      logger.warn("Model response failed schema validation", {
+        callSid: session.callSid,
+        issues: error.issueDetails
+      });
+      if (repairCounts.responseShape >= 1) {
+        throw new BookingWorkflowError(`Model response remained invalid after correction: ${error.message}`);
+      }
+      const validationError = error.issueDetails
+        .map((issue) => `${issue.field}: ${issue.expected}`)
+        .join("; ");
+      return this.createModelTurn(session, {
+        ...payload,
+        rejectedModelResult: error.rejectedResponse,
+        validationError,
+        instruction: [
+          "Your previous response did not satisfy the required model-turn response schema.",
+          `Correct these field errors: ${validationError}.`,
+          "updatedFields, confirmedFields, and unclearFields must each be arrays of strings; use an empty array when there are no values.",
+          "Return a complete corrected response, preserve valid caller-provided information, and do not ask the caller to repeat it merely to fix response formatting."
+        ].join(" ")
+      }, { ...repairCounts, responseShape: repairCounts.responseShape + 1 });
+    }
     const contractError = bookingModelContractError(session, result);
     if (!contractError) return result;
 
@@ -312,11 +443,11 @@ export class ModelClient {
 
     logger.warn("Booking model contract rejected", {
       callSid: session.callSid,
-      repairAttempt,
+      repairAttempt: repairCounts.bookingContract,
       argumentFields: Object.keys(result.toolRequest?.arguments ?? {}),
       collectedFieldNames: Object.keys(result.collectedFields ?? {})
     });
-    if (repairAttempt === 0) {
+    if (repairCounts.bookingContract === 0) {
       const repairInstruction = contractError.includes("appointmentTypeId")
         ? "Your previous BOOK_APPOINTMENT omitted the required appointmentTypeId. Correct the JSON now: use workflowState.context.patientType, select the closest matching numeric ID from the corresponding appointmentTypes catalog using bookingReason and its description, preserve all known fields, and submit BOOK_APPOINTMENT. Do not ask the caller for the ID and do not omit it again."
         : "Correct your previous JSON using the tool contract and known conversation context. Recover known values without asking the caller to repeat them. If information is genuinely missing or ambiguous, ask naturally instead of requesting a tool.";
@@ -325,7 +456,7 @@ export class ModelClient {
         rejectedModelResult: result,
         validationError: contractError,
         instruction: repairInstruction
-      }, repairAttempt + 1);
+      }, { ...repairCounts, bookingContract: repairCounts.bookingContract + 1 });
     }
     throw new BookingWorkflowError("Booking model contract remained invalid after correction");
   }

@@ -41,8 +41,8 @@ export interface CallerActionDecision {
   authorization?: CallerActionAuthorization;
 }
 
-export function callerActionRequestsStaffTransfer(result: ModelTurnResult): boolean {
-  const action = result.callerAction;
+export function callerActionRequestsStaffTransfer(result?: ModelTurnResult): boolean {
+  const action = result?.callerAction;
   if (!action || (action.requestedAction !== "TRANSFER_TO_STAFF"
       && action.workflowIntent !== "TRANSFER_TO_STAFF")) {
     return false;
@@ -66,11 +66,6 @@ export function callerActionExplicitlyAuthorizesStaffTransfer(result?: ModelTurn
   return result?.callerAction?.speechAct === "AUTHORIZATION"
     && result.callerAction.authorization?.stateChangingAction === "TRANSFER_TO_STAFF"
     && result.callerAction.authorization.isExplicit === true;
-}
-
-export function assistantTextOffersStaffTransfer(assistantText: string): boolean {
-  return /\b(?:would you like|do you want|shall i|should i|may i|can i)\b[^?]{0,140}\b(?:connect|transfer)\b[^?]{0,100}\b(?:staff|representative|agent|human|someone)\b[^?]*\?/i
-    .test(assistantText);
 }
 
 export function callerActionDeclinesStaffTransfer(result?: ModelTurnResult): boolean {
