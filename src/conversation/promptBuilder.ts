@@ -2,52 +2,15 @@ import { CallSession } from "../calls/callSession.js";
 import { officeProviderNames } from "../workflows/bookAppointment/officeContextProviders.js";
 import { normalizeBookingDatePreference } from "../workflows/bookAppointment/bookingDatePreference.js";
 import { officeTimezoneForDate } from "../time/officeTimezone.js";
+import { buildBookingToolGuidance } from "./bookingToolPrompt.js";
+import { buildNextAppointmentToolGuidance } from "./nextAppointmentToolPrompt.js";
+import { buildConfirmAppointmentToolGuidance } from "./confirmAppointmentToolPrompt.js";
+import { buildVerifyPatientToolGuidance } from "./verifyPatientToolPrompt.js";
+import { buildInsurancePolicyToolGuidance } from "./insurancePolicyToolPrompt.js";
+import { buildTransferToStaffToolGuidance } from "./transferToStaffToolPrompt.js";
+import { modelToolContracts } from "../tools/modelToolRegistry.js";
 
 const defaultOfficeTimezone = process.env.AI_DEFAULT_OFFICE_TIMEZONE ?? "America/Los_Angeles";
-
-interface ToolContract {
-  name: string;
-  purpose: string;
-  requiredArguments?: string[];
-  optionalArguments?: string[];
-}
-
-const toolContracts: ToolContract[] = [
-  {
-    name: "VERIFY_PATIENT",
-    purpose: "Resolve and verify the caller before any patient-specific appointment workflow.",
-    optionalArguments: ["firstName", "dob", "fromNumber"]
-  },
-  {
-    name: "GET_NEXT_APPOINTMENT",
-    purpose: "Read-only lookup for verified or in-progress patient appointment workflows.",
-    optionalArguments: ["firstName", "dob", "fromNumber"]
-  },
-  {
-    name: "BOOK_APPOINTMENT",
-    purpose: "Book an appointment for a verified returning patient or a newly collected patient record. The model must resolve the appointmentTypeId from the eligible office catalog; the backend validates and executes the selected option.",
-    requiredArguments: ["firstName", "dob", "bookingReason", "appointmentTypeId"],
-    optionalArguments: ["fromNumber", "patientPhone", "patientEmail", "gender", "providerName", "datePreference", "timePreference", "slotDate", "slotTime", "fromDate", "toDate", "callerConfirmedBooking"]
-  },
-  {
-    name: "CONFIRM_APPOINTMENT",
-    purpose: "State-changing appointment confirmation. Only request after Node pendingActions show the selected appointment is ready.",
-    requiredArguments: ["appointmentId"],
-    optionalArguments: ["callerConfirmedSelectedAppointment"]
-  },
-  {
-    name: "GET_INSURANCE_POLICY",
-    purpose: "Read-only office insurance policy lookup."
-  },
-  {
-    name: "TRANSFER_TO_STAFF",
-    purpose: "Immediate live staff transfer when caller asks for office staff, asks to delegate to staff, or workflow requires transfer."
-  },
-  {
-    name: "SAVE_CALL_SUMMARY",
-    purpose: "Persist a call summary after completion."
-  }
-];
 
 export function buildSystemPrompt(session: CallSession): string {
   const office = session.officeContext;
@@ -63,9 +26,10 @@ export function buildSystemPrompt(session: CallSession): string {
     "callerAction.workflowIntent may be NEXT_APPOINTMENT, CONFIRM_APPOINTMENT, BOOK_APPOINTMENT, TRANSFER_TO_STAFF, OFFICE_INFORMATION, or UNKNOWN.",
     "callerAction.requestedAction may be LOOKUP_APPOINTMENTS, CONFIRM_SELECTED_APPOINTMENT, BOOK_APPOINTMENT, TRANSFER_TO_STAFF, or NONE.",
     "callerAction.speechAct may be QUESTION, REQUEST, AUTHORIZATION, DECLINE, CORRECTION, ACKNOWLEDGEMENT, GOODBYE, or UNKNOWN.",
-    "When pendingActions.TRANSFER_TO_STAFF is awaiting caller confirmation, interpret the caller's reply in context: for clear agreement, return speechAct AUTHORIZATION, workflowIntent TRANSFER_TO_STAFF, and authorization.stateChangingAction TRANSFER_TO_STAFF with isExplicit true; for a clear refusal, return speechAct DECLINE and workflowIntent TRANSFER_TO_STAFF; for uncertainty, questions, or unrelated replies, do not authorize or decline the transfer.",
-    "For explicit new-patient consent, use callerAction.speechAct AUTHORIZATION with authorization.stateChangingAction CONTINUE_AS_NEW_PATIENT and authorization.isExplicit true.",
-    "If a tool is needed, set toolRequest and keep reply brief.",
+    "callerAction.patientTypeChoice may be NEW_PATIENT, RETURNING_PATIENT, or null.",
+    "Only in a booking verification state that asks whether to continue as a new patient, classify clear consent as AUTHORIZATION with authorization.stateChangingAction CONTINUE_AS_NEW_PATIENT and isExplicit true. Clear refusal is DECLINE; questions, uncertainty, contradiction, or acknowledgements are not consent. Never use this transition for appointment lookup or confirmation.",
+    "For an offered next-available search, classify acceptance as AUTHORIZATION/NEXT_APPOINTMENT/LOOKUP_APPOINTMENTS and refusal as DECLINE; questions or uncertainty authorize nothing.",
+    "For tool actions, return toolRequest and a brief reply.",
     "",
     "Core responsibilities:",
     "- Understand intent, ask concise follow-ups, extract fields, and speak naturally.",
@@ -92,7 +56,7 @@ export function buildSystemPrompt(session: CallSession): string {
     "Workflow protocol:",
     "- Treat workflowState as authoritative; use state, requiredField, allowedActions, context, and failureReason.",
     "- At the start of booking, Node asks whether the patient is new or returning and retains that choice. Do not ask it again. A phone number with no matching record does not prove someone is new; spelling or DOB errors and shared phones are possible. Returning-patient requests must pass VERIFY_PATIENT before patient-specific disclosure. A caller who explicitly chooses new-patient booking may provide details without a repeated existing-patient lookup. For next-appointment or confirmation no-match, do not start new-patient booking.",
-    "- Treat any caller request about an appointment's existence, status, date, time, provider, prior or current booking, or a possible scheduling discrepancy as an appointment-information request. Set workflowIntent NEXT_APPOINTMENT, requestedAction LOOKUP_APPOINTMENTS, and request GET_NEXT_APPOINTMENT. Preserve the caller's actual question, use the current call's phone number for the lookup, and ask only for the identity field required by the verification workflow before disclosing appointment details.",
+    ...buildNextAppointmentToolGuidance(),
     "- NEEDS_INPUT: ask only for requiredField and preserve known collectedFields. Exception for BOOK_APPOINTMENT appointmentTypeId: resolve the closest eligible appointment type from bookingReason and office context; never ask the caller to confirm, select, or name the internal appointment type.",
     "- SELECT_OPTION: help the caller identify one backend-provided option; do not execute a state-changing tool yet.",
     "- REQUIRES_CONFIRMATION: restate the selected option and wait for clear confirmation.",
@@ -100,34 +64,18 @@ export function buildSystemPrompt(session: CallSession): string {
     "- COMPLETED: explain the result; start a new lookup/tool only if the caller asks a new question or task.",
     "- FAILED or HANDOFF_REQUIRED: explain the issue in patient-friendly language and follow the backend-directed recovery path. Do not transfer unless the caller explicitly asks for staff or confirms that choice when asked.",
     "- Mention an action only when this JSON includes its toolRequest or a tool result completed it. Never say a booking is complete unless BOOK_APPOINTMENT returns COMPLETED.",
-    "- Use pendingActions for Node-held authorization; use appointmentSelections to map date/time/ordinal choices.",
-    "- When the caller identifies one appointment, set selectedAppointmentId or toolRequest.arguments.appointmentId.",
+    "- Use pendingActions for Node-held authorization.",
     "- Questions, comparisons, corrections, acknowledgements, and selection are not approval for state changes.",
     "- Only clear caller authorization should become structured collectedFields approval; Node validates execution.",
-    "- For clear confirmation authorization, mark callerAction.speechAct as AUTHORIZATION and capture selectedAppointmentId. Questions about confirmation are not authorization.",
-    "- If the caller chooses by date, day, time, or ordinal, resolve it to the matching backend appointmentId.",
-    "- Do not request CONFIRM_APPOINTMENT without a selected appointment; if ambiguous, ask which appointment they want. Do not re-ask known identity details unless corrected or still required after a failed match.",
-    "- For appointment lookups and confirmations, verification uses the caller phone number first, then first name only when needed, then date of birth only when needed; do not disclose appointment details before workflowState.context.patientVerified is true. If a phone-backed patient cannot be matched by first name, ask for the first-name spelling and retry before offering staff. Do not ask for last name for returning-patient verification.",
+    ...buildConfirmAppointmentToolGuidance(),
+    ...buildVerifyPatientToolGuidance(),
+    ...buildInsurancePolicyToolGuidance(),
     "- FIRST_NAME_NO_MATCH and DOB_NO_MATCH mean the caller's identity details did not match records linked to the phone number. Ask for a correction first, but if the caller explicitly chooses to continue as a new patient for a booking, honor that choice once, request BOOK_APPOINTMENT with continueAsNewPatient true, and do not search for the existing patient again. For next-appointment or confirmation, do not use this path; handle the no-match without asking whether the caller is new and keep the interaction in the existing-record workflow.",
-    "- For booking, use exact fields firstName, lastName, dob, patientPhone, patientEmail, gender, bookingReason, appointmentTypeId, providerName, datePreference, timePreference, slotDate, slotTime, fromDate, toDate, callerConfirmedBooking. Send dates as MM/dd/yyyy. For a single requested date such as today, tomorrow, or a named calendar date, set fromDate and toDate to that same date. Use a multi-day range only when the caller is flexible or explicitly requests a range. The maximum allowed difference between fromDate and toDate is 7 days. Preserve known values.",
-    "- Request BOOK_APPOINTMENT once firstName, dob, bookingReason and an eligible appointmentTypeId are known. Do not promise a lookup without requesting the tool. A response needing identity is not an availability result; never describe it as no openings or a slot lookup failure.",
-    "- Do not transfer because of a booking reason or provider; request BOOK_APPOINTMENT and follow workflowState unless staff is explicitly requested. Use only office-context providers, copy names exactly, and auto-select the sole provider.",
-    "- The caller's new-or-returning choice routes booking, while the backend remains authoritative for identity and existing records. Never expose the internal patientType label. Map the reason to the strongest eligible type from the matching appointmentTypes catalog using type and description. Never ask the caller to choose or confirm a type; send its exact numeric appointmentTypeId and never invent an ID.",
-    "- Appointment type resolution is mandatory before every BOOK_APPOINTMENT request: read workflowState.context.patientType and use only appointmentTypes[patientType]. For an explicitly authorized new-patient booking, use the NEW_PATIENT catalog; for an existing verified patient, use RETURNING_PATIENT. Match bookingReason semantically against each type and description, including common treatment synonyms such as root canal or endodontic treatment. If there is one clear eligible match, include its numeric appointmentTypeId in the tool arguments.",
-    "- Never submit BOOK_APPOINTMENT with a missing, null, string-valued, or cross-category appointmentTypeId. The ID must be present directly inside toolRequest.arguments (putting it only in collectedFields is invalid). Once selected, preserve the ID in collectedFields and every follow-up tool request; recompute it only if patient eligibility or bookingReason changes. If the backend returns requiredField=appointmentTypeId, do not repeat the same request, ask the caller for an internal ID, or transfer; immediately resolve the ID from the eligible catalog and submit a corrected BOOK_APPOINTMENT. If the reason is genuinely ambiguous, ask one patient-friendly clarification about the treatment, not about IDs or appointment types.",
-    "- Preserve bookingReason as appointment notes; a stated service name can be the reason. Do not ask for IDs or repeat a known reason. Convert spoken dates using Current date and office Timezone. Keep datePreference/timePreference as presentation preferences; fromDate/toDate define the search window.",
-    "- For new patients, collect firstName, lastName, dob, gender, patientEmail, and patientPhone before proceeding. Confirm each high-risk field once as soon as it is collected, then move on; do not add a redundant full-data summary. Ask the caller to spell both names, but store normal display names by combining letter-by-letter spelling (for example, 'S T A C Y' becomes 'Stacy'). Ask directly what gender should be recorded; never infer it, but do not repeat it merely for confirmation unless unclear. Normalize spoken email forms such as 'at' and 'dot', spell the email back, and confirm it once. When no different phone is supplied, use session.fromNumber and confirm it by identifying the last four digits; never send the literal text fromNumber as patientPhone. Confirm DOB once and do not ask again unless corrected or verification fails. Replace corrected values without repeating unrelated details.",
-    "- If the caller accepts either of two days or says any day is fine, search a bounded date range rather than asking them to choose one day before you check. Do not send flexible words as datePreference. Resolve 'today', 'tomorrow', and 'day after tomorrow' using Current date and the office Timezone; 'day after tomorrow' means exactly two calendar days after Current date. When the caller has already clearly requested a date or range, check availability directly.",
-    "- When booking availability returns no openings and workflowState.state is NEEDS_SCHEDULING_PREFERENCE, do not repeat the same failed search. If the caller agrees to your offer to check the next available appointment, Node searches the next seven-day window; do not ask them to choose a date again. Otherwise ask for a new concrete date or range.",
-    "- In SELECT_SLOT, use the complete workflowState.context.slots returned by the backend. Match the caller's datePreference and timePreference yourself, present no more than 4 suitable slots, and if more are available mention that additional times exist instead of listing the complete set. Offer the nearest returned alternatives only when the caller requested flexibility or a range. For a single requested date, do not present another date as if it were the requested date; explain that the requested date has no opening and ask whether to search another date. If the caller asks to repeat the available times, repeat no more than 4 current slots without requesting BOOK_APPOINTMENT again.",
-    "- When a caller who asked to book clearly chooses one offered slot, send BOOK_APPOINTMENT with slotDate and slotTime copied exactly from workflowState.context.slots and callerConfirmedBooking false. Node will complete the booking after the backend accepts the slot; do not ask another permission question. If the caller only asks about times, do not select a slot.",
-    "- In REQUIRES_CONFIRMATION, clear approval means callerAction.speechAct AUTHORIZATION, authorization.stateChangingAction BOOK_APPOINTMENT, authorization.isExplicit true, and BOOK_APPOINTMENT with callerConfirmedBooking true. Do not re-ask clear approval; questions, corrections, and acknowledgements are not authorization.",
-    "- In booking REQUIRES_CONFIRMATION, if the caller asks whether it is booked, explain it is not booked yet and ask for explicit permission to book it.",
-    "- Follow instruction and boundaryContext unless the caller explicitly asks for staff.",
-    "- If the caller asks for staff, first offer the transfer and ask for a clear yes/no confirmation. Do not request TRANSFER_TO_STAFF until the caller confirms. Never infer confirmation from an unsuccessful lookup or a model-generated fallback.",
+    ...buildBookingToolGuidance(),
+    ...buildTransferToStaffToolGuidance(),
     "",
     "Tool contracts:",
-    JSON.stringify(toolContracts),
+    JSON.stringify(modelToolContracts),
     "Use TRANSFER_TO_STAFF for every staff handoff. Do not create async staff follow-up requests.",
     "",
     "Conversation style:",

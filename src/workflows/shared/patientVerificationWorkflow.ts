@@ -8,7 +8,6 @@ import {
 import { ConversationWorkflow, ToolPolicyDecision, WorkflowToolAdapter } from "./workflowTypes.js";
 import { newPatientDataFields } from "./newPatientDataConfirmation.js";
 import { logger } from "../../utils/logger.js";
-import { callerTextExplicitlyContinuesAsNewPatient } from "./callerActionDecision.js";
 import {
   constrainNewPatientDataUpdates,
   synchronizeNewPatientDataConfirmation
@@ -54,37 +53,6 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
     synchronizeData(session, result, callerText) {
       synchronizeNewPatientDataConfirmation(session, result, callerText);
     },
-    applyCallerAuthorization(session, callerText, result) {
-      if (result.callerAction?.authorization?.stateChangingAction === "CONTINUE_AS_NEW_PATIENT") {
-        return result;
-      }
-
-      const previousAssistantText = [...session.transcript]
-        .reverse()
-        .find((turn) => turn.speaker === "assistant")?.text;
-      if (!callerTextExplicitlyContinuesAsNewPatient(callerText, previousAssistantText)) {
-        return result;
-      }
-
-      logger.info("Applied deterministic new-patient authorization from caller speech", {
-        callSid: session.callSid,
-        officeCode: session.officeCode,
-        callerText
-      });
-      return {
-        ...result,
-        intent: "BOOK_APPOINTMENT",
-        callerAction: {
-          speechAct: "AUTHORIZATION",
-          workflowIntent: "BOOK_APPOINTMENT",
-          requestedAction: "BOOK_APPOINTMENT",
-          authorization: {
-            stateChangingAction: "CONTINUE_AS_NEW_PATIENT",
-            isExplicit: true
-          }
-        }
-      };
-    }
   },
 
   limitToolChain(session: CallSession, result: ModelTurnResult, toolChainDepth: number): ModelTurnResult | undefined {

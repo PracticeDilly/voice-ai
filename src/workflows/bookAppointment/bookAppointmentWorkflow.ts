@@ -2,8 +2,11 @@ import { CallSession } from "../../calls/callSession.js";
 import { BookingWorkflowError } from "./bookingModelContract.js";
 import { logger } from "../../utils/logger.js";
 import { ModelTurnResult } from "../../conversation/modelClient.js";
-import { callerActionExplicitlyAuthorizesBooking } from "../shared/callerActionDecision.js";
-import { bookingPatientChoiceFromSpeech } from "./bookingPatientChoice.js";
+import {
+  callerActionAuthorizesNextAvailabilityLookup,
+  callerActionExplicitlyAuthorizesBooking
+} from "../shared/callerActionDecision.js";
+import { bookingPatientChoiceFromModel } from "./bookingPatientChoice.js";
 import { ConversationWorkflow, ToolPolicyDecision } from "../shared/workflowTypes.js";
 import { BookAppointmentToolAdapter } from "./bookAppointmentToolAdapter.js";
 import { BookingAppointmentTypeResolutionPort, ensureBookingAppointmentType } from "./bookingAppointmentTypeResolver.js";
@@ -66,36 +69,7 @@ export function createBookAppointmentWorkflow(
   startNewPatientBooking(session) {
     initializeNewPatientBooking(session);
   },
-  handleCallerTurn(session, callerText) {
-    if (!session.awaitingBookingPatientChoice) {
-      return undefined;
-    }
-
-    const choice = bookingPatientChoiceFromSpeech(callerText);
-    if (!choice) {
-      return {
-        reply: "For this appointment, is the patient new to our office or have they visited before?",
-        source: "patient-status-clarification"
-      };
-    }
-
-    session.awaitingBookingPatientChoice = false;
-    session.bookingPatientChoice = choice;
-    if (choice === "NEW_PATIENT") {
-      initializeNewPatientBooking(session);
-    }
-
-    if (/^(?:(?:i am|i'm|we are)\s+)?(?:a\s+|an\s+)?(?:new|existing|returning|current|first[- ]time)\s+patient[.!?]*$/i.test(callerText.trim())) {
-      return {
-        reply: choice === "NEW_PATIENT"
-          ? "Great. What is the patient's first name?"
-          : "Thanks. Please say and spell the patient's first name so I can find the right record.",
-        source: "patient-status-choice"
-      };
-    }
-    return undefined;
-  },
-  handleBookingEntry(session, callerText, result) {
+  handleBookingEntry(session, _callerText, result) {
     if (result.intent?.trim().toUpperCase() !== "BOOK_APPOINTMENT"
       || !session.fromNumber
       || session.workflowState
@@ -105,8 +79,9 @@ export function createBookAppointmentWorkflow(
 
     session.currentIntent = "BOOK_APPOINTMENT";
     session.collectedFields = { ...session.collectedFields, ...(result.collectedFields ?? {}) };
-    const choice = bookingPatientChoiceFromSpeech(callerText);
+    const choice = bookingPatientChoiceFromModel(result);
     if (choice === "NEW_PATIENT") {
+      session.awaitingBookingPatientChoice = false;
       initializeNewPatientBooking(session);
       if (typeof session.collectedFields.firstName === "string" && session.collectedFields.firstName.trim()) {
         markNewPatientConfirmationPrompt(session, "firstName");
@@ -126,6 +101,7 @@ export function createBookAppointmentWorkflow(
       };
     }
 
+    session.awaitingBookingPatientChoice = false;
     session.bookingPatientChoice = choice;
     return !session.collectedFields.firstName
       ? {
@@ -154,14 +130,14 @@ export function createBookAppointmentWorkflow(
       session.startedAt
     );
   },
-  prepareModelResult(session, callerText, result) {
+  prepareModelResult(session, _callerText, result) {
     const previousAssistantText = [...session.transcript].reverse()
       .find((turn) => turn.speaker === "assistant")?.text ?? "";
     if (session.workflowState?.workflow !== "BOOK_APPOINTMENT"
       || session.workflowState.state !== "NEEDS_SCHEDULING_PREFERENCE"
       || !session.lastBookingSearchRange
       || !/\b(?:next|earliest|first) available\b/i.test(previousAssistantText)
-      || !/^(?:yes|yeah|yep|sure|please|go ahead|okay|ok)[\s,.!?]*$/i.test(callerText.trim())) {
+      || !callerActionAuthorizesNextAvailabilityLookup(result)) {
       return result;
     }
 

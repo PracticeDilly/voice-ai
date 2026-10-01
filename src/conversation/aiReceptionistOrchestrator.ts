@@ -196,7 +196,7 @@ export class AiReceptionistOrchestrator {
     }
 
     if (callerTextRequestsStaffTransfer(callerText)) {
-      return this.offerStaffTransfer(session, "caller-request");
+      return this.directStaffTransfer(session);
     }
 
     if (callerTextAsksOfficeHours(callerText)) {
@@ -221,7 +221,6 @@ export class AiReceptionistOrchestrator {
     }
 
     let firstResult = await this.modelClient.nextTurn(session, callerText);
-    firstResult = this.workflowRegistry.applyCallerAuthorization(session, callerText, firstResult);
     firstResult = this.workflowRegistry.prepareModelResult(session, callerText, firstResult);
     const bookingEntryDecision = this.workflowRegistry.handleBookingEntry(session, callerText, firstResult);
     if (bookingEntryDecision) {

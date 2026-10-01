@@ -88,14 +88,6 @@ export class ConversationWorkflowRegistry {
     return undefined;
   }
 
-  applyCallerAuthorization(session: CallSession, callerText: string, result: ModelTurnResult): ModelTurnResult {
-    return this.workflows.reduce(
-      (authorizedResult, workflow) => workflow.modelLifecycle?.applyCallerAuthorization?.(session, callerText, authorizedResult)
-        ?? authorizedResult,
-      result
-    );
-  }
-
   constrainModelResult(session: CallSession, result: ModelTurnResult): void {
     for (const workflow of this.workflows) {
       workflow.modelLifecycle?.constrainResult?.(session, result);

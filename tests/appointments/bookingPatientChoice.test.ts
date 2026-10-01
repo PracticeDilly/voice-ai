@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bookingPatientChoiceFromSpeech } from "../../src/workflows/bookAppointment/bookingPatientChoice.js";
+import { bookingPatientChoiceFromModel } from "../../src/workflows/bookAppointment/bookingPatientChoice.js";
 
-test("takes an explicit new or returning choice, not an ambiguous yes", () => {
-  assert.equal(bookingPatientChoiceFromSpeech("I'm a new patient"), "NEW_PATIENT");
-  assert.equal(bookingPatientChoiceFromSpeech("This is my first visit"), "NEW_PATIENT");
-  assert.equal(bookingPatientChoiceFromSpeech("I'm a returning patient"), "RETURNING_PATIENT");
-  assert.equal(bookingPatientChoiceFromSpeech("I'm not a new patient"), "RETURNING_PATIENT");
-  assert.equal(bookingPatientChoiceFromSpeech("Yes"), undefined);
+test("accepts only a structured new-or-returning classification from the model", () => {
+  assert.equal(bookingPatientChoiceFromModel({ callerAction: { patientTypeChoice: "NEW_PATIENT" } }), "NEW_PATIENT");
+  assert.equal(bookingPatientChoiceFromModel({ callerAction: { patientTypeChoice: "RETURNING_PATIENT" } }), "RETURNING_PATIENT");
+  assert.equal(bookingPatientChoiceFromModel({ callerAction: { patientTypeChoice: null } }), undefined);
+  assert.equal(bookingPatientChoiceFromModel({ callerAction: { speechAct: "ACKNOWLEDGEMENT" } }), undefined);
+  assert.equal(bookingPatientChoiceFromModel({}), undefined);
+  assert.equal(bookingPatientChoiceFromModel({ callerAction: { patientTypeChoice: "MAYBE" } } as never), undefined);
 });

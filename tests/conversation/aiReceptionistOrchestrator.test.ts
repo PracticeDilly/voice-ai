@@ -12,8 +12,14 @@ test("asks once whether a booking caller is new or returning and honors the new 
   const orchestrator = new AiReceptionistOrchestrator(sessions);
   let modelCalls = 0;
   Object.defineProperty(orchestrator, "modelClient", { value: {
-    async nextTurn() {
+    async nextTurn(_session: CallSession, callerText: string) {
       modelCalls += 1;
+      if (callerText !== "I'd like to book a cleaning") {
+        return {
+          intent: "BOOK_APPOINTMENT",
+          callerAction: { patientTypeChoice: "NEW_PATIENT" }
+        };
+      }
       return {
         intent: "BOOK_APPOINTMENT",
         collectedFields: { bookingReason: "cleaning" },
@@ -34,7 +40,7 @@ test("asks once whether a booking caller is new or returning and honors the new 
   assert.equal(session.newPatientBookingCandidate, true);
   assert.equal(session.bookingPatientChoice, "NEW_PATIENT");
   assert.equal(session.workflowState?.state, "NEEDS_NEW_PATIENT_DATA");
-  assert.equal(modelCalls, 1);
+  assert.equal(modelCalls, 2);
 });
 
 test("a returning booking caller is asked to spell their name without being classified from caller ID", async () => {
@@ -42,7 +48,11 @@ test("a returning booking caller is asked to spell their name without being clas
   const session = sessions.create({ callSid: "CA-returning-choice", officeCode: "TEST", fromNumber: "+15551234567" });
   const orchestrator = new AiReceptionistOrchestrator(sessions);
   Object.defineProperty(orchestrator, "modelClient", { value: {
-    async nextTurn() { return { intent: "BOOK_APPOINTMENT", reply: "What is your name?" }; }
+    async nextTurn(_session: CallSession, callerText: string) {
+      return callerText === "I need an appointment"
+        ? { intent: "BOOK_APPOINTMENT", reply: "What is your name?" }
+        : { intent: "BOOK_APPOINTMENT", callerAction: { patientTypeChoice: "RETURNING_PATIENT" } };
+    }
   } });
   await orchestrator.handleCallerText(session, "I need an appointment", { recordCallerTurn: false });
   const choice = await orchestrator.handleCallerText(session, "I'm a returning patient", { recordCallerTurn: false });
@@ -51,7 +61,38 @@ test("a returning booking caller is asked to spell their name without being clas
   assert.equal(session.newPatientBookingCandidate, undefined);
 });
 
-test("checks the next date window when the caller accepts an offer to find the next available visit", async () => {
+test("keeps asking when the model classifies the patient-type answer as ambiguous or contradictory", async () => {
+  const sessions = new CallSessionStore();
+  const session = sessions.create({ callSid: "CA-patient-choice-unclear", officeCode: "TEST", fromNumber: "+15551234567" });
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  let bookingExecutions = 0;
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn(_session: CallSession, callerText: string) {
+      if (callerText === "I want to book a cleaning") {
+        return { intent: "BOOK_APPOINTMENT", toolRequest: { name: "BOOK_APPOINTMENT", arguments: {} } };
+      }
+      return { intent: "BOOK_APPOINTMENT", callerAction: { patientTypeChoice: null } };
+    }
+  } });
+  Object.defineProperty(orchestrator, "toolExecutor", { value: {
+    async execute() {
+      bookingExecutions += 1;
+      throw new Error("booking must wait until patient type is clear");
+    }
+  } });
+
+  await orchestrator.handleCallerText(session, "I want to book a cleaning", { recordCallerTurn: false });
+  const answer = await orchestrator.handleCallerText(session, "I've been to a dentist before, but I'm not sure what you mean", { recordCallerTurn: false });
+  const contradiction = await orchestrator.handleCallerText(session, "I'm new, but I've been to this office before", { recordCallerTurn: false });
+
+  assert.match(answer.reply, /new to our office or have they visited before/i);
+  assert.match(contradiction.reply, /new to our office or have they visited before/i);
+  assert.equal(session.awaitingBookingPatientChoice, true);
+  assert.equal(session.bookingPatientChoice, undefined);
+  assert.equal(bookingExecutions, 0);
+});
+
+test("checks the next date window when the model recognizes a natural acceptance of the offer", async () => {
   const { orchestrator, session, executed } = bookingHarness([
     { intent: "BOOK_APPOINTMENT", reply: "I found more times. Which works for you?" }
   ], ["SELECT_SLOT"]);
@@ -66,12 +107,50 @@ test("checks the next date window when the caller accepts an offer to find the n
     text: "Would you like me to check the next available appointment?",
     at: "2026-09-30T11:30:07.000Z"
   });
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      return {
+        callerAction: {
+          speechAct: "AUTHORIZATION",
+          workflowIntent: "NEXT_APPOINTMENT",
+          requestedAction: "LOOKUP_APPOINTMENTS"
+        }
+      };
+    },
+    async continueWithToolResult() {
+      return { intent: "BOOK_APPOINTMENT", reply: "I found more times. Which works for you?" };
+    }
+  } });
 
-  const outcome = await orchestrator.handleCallerText(session, "Yes", { recordCallerTurn: false });
+  const outcome = await orchestrator.handleCallerText(session, "The earliest one would be great, please.", { recordCallerTurn: false });
   assert.equal(executed.length, 1);
   assert.equal(executed[0].arguments.fromDate, "10/02/2026");
   assert.equal(executed[0].arguments.toDate, "10/09/2026");
   assert.match(outcome.reply, /Which works for you/i);
+});
+
+test("does not search the next date window for an unclear response to the offer", async () => {
+  const { orchestrator, session, executed } = bookingHarness([], []);
+  session.workflowState = {
+    contractVersion: 1,
+    workflow: "BOOK_APPOINTMENT",
+    state: "NEEDS_SCHEDULING_PREFERENCE"
+  };
+  session.lastBookingSearchRange = { fromDate: "09/30/2026", toDate: "10/01/2026" };
+  session.transcript.push({
+    speaker: "assistant",
+    text: "Would you like me to check the next available appointment?",
+    at: "2026-09-30T11:30:07.000Z"
+  });
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      return { callerAction: { speechAct: "QUESTION", workflowIntent: "NEXT_APPOINTMENT" } };
+    }
+  } });
+
+  await orchestrator.handleCallerText(session, "What dates would that include?", { recordCallerTurn: false });
+
+  assert.equal(executed.length, 0);
 });
 
 test("does not end or transfer a caller who only questions a failed lookup", async () => {
@@ -238,7 +317,7 @@ test("does not transfer when identity policy suppresses an inferred transfer", a
   assert.match(outcome.reply, /spell your first name/i);
 });
 
-test("uses caller speech to leave failed verification and enter new-patient booking", async () => {
+test("uses explicit model authorization to leave failed verification and enter new-patient booking", async () => {
   const sessions = new CallSessionStore();
   const orchestrator = new AiReceptionistOrchestrator(sessions);
   const session = sessions.create({ callSid: "CA-new-patient-consent", officeCode: "TEST", fromNumber: "+15551234567" });
@@ -254,16 +333,53 @@ test("uses caller speech to leave failed verification and enter new-patient book
   };
   Object.defineProperty(orchestrator, "modelClient", { value: {
     async nextTurn() {
-      return { intent: "BOOK_APPOINTMENT", collectedFields: { bookingReason: "Cleaning" }, reply: "Okay." };
+      return {
+        intent: "BOOK_APPOINTMENT",
+        collectedFields: { bookingReason: "Cleaning" },
+        callerAction: {
+          speechAct: "AUTHORIZATION",
+          workflowIntent: "BOOK_APPOINTMENT",
+          requestedAction: "BOOK_APPOINTMENT",
+          authorization: { stateChangingAction: "CONTINUE_AS_NEW_PATIENT", isExplicit: true }
+        },
+        reply: "Okay."
+      };
     }
   } });
 
-  const outcome = await orchestrator.handleCallerText(session, "Yeah. I'll continue as a new patient.", { recordCallerTurn: false });
+  const outcome = await orchestrator.handleCallerText(session, "Let's start fresh with your office.", { recordCallerTurn: false });
 
   assert.equal(outcome.shouldTransferToStaff, false);
   assert.equal(session.newPatientBookingCandidate, true);
   assert.equal(session.workflowState?.workflow, "BOOK_APPOINTMENT");
   assert.equal(session.workflowState?.state, "NEEDS_NEW_PATIENT_DATA");
+});
+
+test("does not switch to new-patient booking from affirmative wording without model authorization", async () => {
+  const sessions = new CallSessionStore();
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  const session = sessions.create({ callSid: "CA-new-patient-no-authorization", officeCode: "TEST", fromNumber: "+15551234567" });
+  session.currentIntent = "BOOK_APPOINTMENT";
+  session.collectedFields = { firstName: "Mary", dob: "01/01/2001", bookingReason: "Cleaning" };
+  session.workflowState = {
+    contractVersion: 1,
+    workflow: "PATIENT_VERIFICATION",
+    state: "NEEDS_NEW_PATIENT_CONFIRMATION",
+    allowedActions: ["BOOK_APPOINTMENT", "TRANSFER_TO_STAFF"],
+    failureReason: "NO_EXISTING_PATIENT_RECORD",
+    context: { patientVerified: false, canDisclosePatientData: false }
+  };
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      return { intent: "BOOK_APPOINTMENT", callerAction: { speechAct: "ACKNOWLEDGEMENT" }, reply: "Okay." };
+    }
+  } });
+
+  await orchestrator.handleCallerText(session, "Yeah, let's continue as a new patient.", { recordCallerTurn: false });
+
+  assert.equal(session.newPatientBookingCandidate, undefined);
+  assert.equal(session.workflowState?.workflow, "PATIENT_VERIFICATION");
+  assert.equal(session.workflowState?.state, "NEEDS_NEW_PATIENT_CONFIRMATION");
 });
 
 test("ends the call deterministically when the caller asks to drop it", async () => {
@@ -283,23 +399,13 @@ test("ends the call deterministically when the caller asks to drop it", async ()
   assert.match(outcome.reply, /end the call/i);
 });
 
-test("asks for confirmation before transferring an explicit staff request", async () => {
+test("transfers immediately when the caller explicitly requests staff", async () => {
   const sessions = new CallSessionStore();
   const orchestrator = new AiReceptionistOrchestrator(sessions);
   const session = sessions.create({ callSid: "CA-direct-staff", officeCode: "TEST" });
-  let modelTurns = 0;
   Object.defineProperty(orchestrator, "modelClient", { value: {
-    async nextTurn(_session: CallSession, callerText: string) {
-      modelTurns += 1;
-      if (callerText === "Yes, please.") {
-        return { callerAction: {
-          speechAct: "AUTHORIZATION",
-          workflowIntent: "TRANSFER_TO_STAFF",
-          requestedAction: "TRANSFER_TO_STAFF",
-          authorization: { stateChangingAction: "TRANSFER_TO_STAFF", isExplicit: true }
-        } };
-      }
-      throw new Error("an explicit staff request should not wait for a model turn");
+    async nextTurn() {
+      throw new Error("an explicit staff request should not need model confirmation");
     }
   } });
   Object.defineProperty(orchestrator, "toolExecutor", { value: {
@@ -308,23 +414,17 @@ test("asks for confirmation before transferring an explicit staff request", asyn
     }
   } });
 
-  const offer = await orchestrator.handleCallerText(
+  const outcome = await orchestrator.handleCallerText(
     session,
-    "I want to talk to the office staff.",
+    "Hi, Lisa. Could you please transfer this call to the office staff?",
     { recordCallerTurn: false }
   );
 
-  assert.equal(offer.shouldEndSession, false);
-  assert.equal(offer.shouldTransferToStaff, false);
-  assert.match(offer.reply, /would you like me to transfer/i);
-  assert.equal(session.pendingActions.TRANSFER_TO_STAFF?.status, "AWAITING_CALLER_CONFIRMATION");
-
-  const outcome = await orchestrator.handleCallerText(session, "Yes, please.", { recordCallerTurn: false });
   assert.equal(outcome.shouldEndSession, true);
   assert.equal(outcome.shouldTransferToStaff, true);
   assert.match(outcome.reply, /office staff/i);
   assert.equal(outcome.handoffData?.reasonCode, "live-agent-handoff");
-  assert.equal(modelTurns, 1);
+  assert.equal(session.pendingActions.TRANSFER_TO_STAFF, undefined);
 });
 
 test("transfers after a model offered staff and the caller says Yeah. Sure.", async () => {

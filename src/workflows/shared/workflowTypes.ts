@@ -52,7 +52,6 @@ export interface WorkflowToolAdapter {
 }
 
 export interface WorkflowModelLifecycle {
-  applyCallerAuthorization?(session: CallSession, callerText: string, result: ModelTurnResult): ModelTurnResult;
   constrainResult?(session: CallSession, result: ModelTurnResult): void;
   synchronizeData?(session: CallSession, result: ModelTurnResult, callerText?: string): void;
   synchronizeResult?(session: CallSession, result: ModelTurnResult): void;

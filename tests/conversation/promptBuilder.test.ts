@@ -2,15 +2,29 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildSystemPrompt } from "../../src/conversation/promptBuilder.js";
 import { CallSession } from "../../src/calls/callSession.js";
+import { modelToolContracts } from "../../src/tools/modelToolRegistry.js";
+import { ToolExecutor } from "../../src/tools/toolExecutor.js";
+import { SpringBootClient } from "../../src/backend/springBootClient.js";
 
 test("builds a compact workflow-oriented prompt", () => {
   const prompt = buildSystemPrompt(session());
 
   assert.match(prompt, /Workflow protocol:/);
   assert.match(prompt, /Tool contracts:/);
+  assert.match(prompt, /BOOK_APPOINTMENT tool guidance:/);
+  assert.match(prompt, /callerAction\.patientTypeChoice as NEW_PATIENT or RETURNING_PATIENT/i);
+  assert.match(prompt, /GET_NEXT_APPOINTMENT tool guidance:/);
+  assert.match(prompt, /CONFIRM_APPOINTMENT tool guidance:/);
+  assert.match(prompt, /VERIFY_PATIENT tool guidance:/);
+  assert.match(prompt, /GET_INSURANCE_POLICY tool guidance:/);
+  assert.match(prompt, /Do not infer that a listed or accepted plan guarantees coverage/i);
+  assert.match(prompt, /TRANSFER_TO_STAFF tool guidance:/);
+  assert.match(prompt, /transfer immediately without asking them to confirm it again/i);
+  assert.match(prompt, /Only in a booking verification state that asks whether to continue as a new patient/i);
   assert.match(prompt, /BOOK_APPOINTMENT/);
   assert.match(prompt, /Use TRANSFER_TO_STAFF for every staff handoff/);
   assert.doesNotMatch(prompt, /CREATE_HANDOFF_REQUEST/);
+  assert.doesNotMatch(prompt, /SAVE_CALL_SUMMARY/);
   assert.doesNotMatch(prompt, /GETevant|reldo/);
   assert.match(prompt, /"requiredArguments":\["firstName","dob","bookingReason","appointmentTypeId"\]/);
   assert.match(prompt, /use exact fields.*dob/i);
@@ -38,7 +52,7 @@ test("builds a compact workflow-oriented prompt", () => {
   assert.match(prompt, /office context as a closed-world source of truth/i);
   assert.match(prompt, /do not guess, infer, or use general knowledge/i);
   assert.match(prompt, /never present an absent or ambiguous office fact as true/i);
-  assert.ok(prompt.length < 19000, `prompt is too long: ${prompt.length}`);
+  assert.ok(prompt.length < 20000, `prompt is too long: ${prompt.length}`);
 });
 
 test("uses the office-local current date in the prompt", () => {
@@ -63,6 +77,21 @@ test("includes appointment type eligibility and context-only provider instructio
   assert.match(prompt, /copy names exactly/);
   assert.match(prompt, /Preserve bookingReason/);
   assert.doesNotMatch(prompt, /selected from office context providers or backend providerOptions/);
+});
+
+test("model prompt contracts match the tools accepted by the executor", () => {
+  const prompt = buildSystemPrompt(session());
+  const contractText = prompt.split("Tool contracts:\n")[1]?.split("\nUse TRANSFER_TO_STAFF")[0];
+  assert.ok(contractText, "prompt should contain serialized tool contracts");
+  const advertisedTools = (JSON.parse(contractText) as Array<{ name: string }>).map(({ name }) => name);
+  const executor = new ToolExecutor({} as SpringBootClient);
+
+  assert.deepEqual(advertisedTools, modelToolContracts.map(({ name }) => name));
+  for (const toolName of advertisedTools) {
+    assert.equal(executor.isAllowed(toolName), true, `${toolName} should be executable`);
+  }
+  assert.equal(advertisedTools.includes("SAVE_CALL_SUMMARY"), false);
+  assert.equal(executor.isAllowed("SAVE_CALL_SUMMARY"), false);
 });
 
 function session(): CallSession {

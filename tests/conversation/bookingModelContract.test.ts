@@ -14,6 +14,12 @@ const booking = (args: Record<string, unknown>): ModelTurnResult => ({
 });
 const session = () => new CallSessionStore().create({ callSid: "CA-contract-test", officeCode: "TEST" });
 
+test("keeps post-call summary persistence out of conversational tool access", () => {
+  const executor = new ToolExecutor({} as SpringBootClient);
+  assert.equal(executor.isAllowed("SAVE_CALL_SUMMARY"), false);
+  assert.equal(executor.isAllowed("BOOK_APPOINTMENT"), true);
+});
+
 test("rejects wrong field names without silently accepting aliases", () => {
   assert.match(bookingModelContractError(session(), booking({ ...validFields, dob: undefined, dateOfBirth: "04/01/2000" }))!, /dateOfBirth/);
   assert.match(bookingModelContractError(session(), booking({ ...validFields, reason: "Cleaning" }))!, /contract/);

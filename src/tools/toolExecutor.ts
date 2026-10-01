@@ -2,16 +2,7 @@ import { SpringBootClient, ToolRequest, ToolResult } from "../backend/springBoot
 import { CallSession } from "../calls/callSession.js";
 import { ConfirmAppointmentToolAdapter } from "../workflows/confirmAppointment/confirmAppointmentToolAdapter.js";
 import { prepareWorkflowTool, validateWorkflowTool } from "../workflows/shared/workflowRegistry.js";
-
-const allowedTools = new Set([
-  "VERIFY_PATIENT",
-  "BOOK_APPOINTMENT",
-  "GET_NEXT_APPOINTMENT",
-  "CONFIRM_APPOINTMENT",
-  "GET_INSURANCE_POLICY",
-  "TRANSFER_TO_STAFF",
-  "SAVE_CALL_SUMMARY"
-]);
+import { isModelToolAllowed } from "./modelToolRegistry.js";
 
 export class ToolExecutor {
   private readonly confirmAppointmentToolAdapter = new ConfirmAppointmentToolAdapter();
@@ -19,7 +10,7 @@ export class ToolExecutor {
   constructor(private readonly springBootClient: SpringBootClient) {}
 
   isAllowed(name: string): boolean {
-    return allowedTools.has(name);
+    return isModelToolAllowed(name);
   }
 
   async execute(session: CallSession, tool: ToolRequest): Promise<ToolResult> {
