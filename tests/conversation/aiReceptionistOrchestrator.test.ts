@@ -17,7 +17,10 @@ test("asks once whether a booking caller is new or returning and honors the new 
       if (callerText !== "I'd like to book a cleaning") {
         return {
           intent: "BOOK_APPOINTMENT",
-          callerAction: { patientTypeChoice: "NEW_PATIENT" }
+          callerAction: {
+            bookingPatientSubjectChoice: "CALLER",
+            patientTypeChoice: "NEW_PATIENT"
+          }
         };
       }
       return {
@@ -32,11 +35,12 @@ test("asks once whether a booking caller is new or returning and honors the new 
   } });
 
   const first = await orchestrator.handleCallerText(session, "I'd like to book a cleaning", { recordCallerTurn: false });
-  assert.match(first.reply, /new to our office or have they visited before/i);
-  assert.equal(session.awaitingBookingPatientChoice, true);
+  assert.match(first.reply, /appointment for you or someone else/i);
+  assert.equal(session.awaitingBookingPatientSubject, true);
   assert.equal(session.collectedFields.bookingReason, "cleaning");
   const second = await orchestrator.handleCallerText(session, "I'm a new patient", { recordCallerTurn: false });
   assert.match(second.reply, /full name/i);
+  assert.equal(session.bookingPatientSubject, "CALLER");
   assert.equal(session.newPatientBookingCandidate, true);
   assert.equal(session.bookingPatientChoice, "NEW_PATIENT");
   assert.equal(session.workflowState?.state, "NEEDS_NEW_PATIENT_DATA");
@@ -51,7 +55,10 @@ test("a returning booking caller is asked to spell their name without being clas
     async nextTurn(_session: CallSession, callerText: string) {
       return callerText === "I need an appointment"
         ? { intent: "BOOK_APPOINTMENT", reply: "What is your name?" }
-        : { intent: "BOOK_APPOINTMENT", callerAction: { patientTypeChoice: "RETURNING_PATIENT" } };
+        : { intent: "BOOK_APPOINTMENT", callerAction: {
+          bookingPatientSubjectChoice: "CALLER",
+          patientTypeChoice: "RETURNING_PATIENT"
+        } };
     }
   } });
   await orchestrator.handleCallerText(session, "I need an appointment", { recordCallerTurn: false });
@@ -59,7 +66,66 @@ test("a returning booking caller is asked to spell their name without being clas
   assert.match(choice.reply, /first name/i);
   assert.doesNotMatch(choice.reply, /spell/i);
   assert.equal(session.bookingPatientChoice, "RETURNING_PATIENT");
+  assert.equal(session.bookingPatientSubject, "CALLER");
   assert.equal(session.newPatientBookingCandidate, undefined);
+});
+
+test("records when a booking is for another person", async () => {
+  const sessions = new CallSessionStore();
+  const session = sessions.create({ callSid: "CA-booking-for-daughter", officeCode: "TEST", fromNumber: "+15551234567" });
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      return {
+        intent: "BOOK_APPOINTMENT",
+        callerAction: {
+          bookingPatientSubjectChoice: "SOMEONE_ELSE",
+          patientTypeChoice: "NEW_PATIENT"
+        }
+      };
+    }
+  } });
+
+  const result = await orchestrator.handleCallerText(session, "I want to book an appointment for my daughter", { recordCallerTurn: false });
+
+  assert.equal(session.bookingPatientSubject, "SOMEONE_ELSE");
+  assert.equal(session.awaitingBookingPatientSubject, false);
+  assert.equal(session.bookingPatientChoice, "NEW_PATIENT");
+  assert.match(result.reply, /full name/i);
+});
+
+test("starts a returning family booking with the caller number and asks for the intended patient's name first", async () => {
+  const sessions = new CallSessionStore();
+  const session = sessions.create({ callSid: "CA-family-returning", officeCode: "TEST", fromNumber: "+15550001111" });
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn(_session: CallSession, callerText: string) {
+      if (callerText === "I want an appointment for my daughter; she has been there before") {
+        return {
+          intent: "BOOK_APPOINTMENT",
+          callerAction: {
+            bookingPatientSubjectChoice: "SOMEONE_ELSE",
+            patientTypeChoice: "RETURNING_PATIENT"
+          }
+        };
+      }
+      return {
+        intent: "BOOK_APPOINTMENT",
+        collectedFields: { patientPhone: "+15552223333" }
+      };
+    }
+  } });
+
+  const first = await orchestrator.handleCallerText(
+    session,
+    "I want an appointment for my daughter; she has been there before",
+    { recordCallerTurn: false }
+  );
+  assert.match(first.reply, /first name/i);
+  assert.equal(session.bookingPatientChoice, "RETURNING_PATIENT");
+  assert.equal(session.awaitingBookingPatientPhone, undefined);
+  assert.equal(session.patientLookupPhone, undefined);
+  assert.equal(session.fromNumber, "+15550001111");
 });
 
 test("keeps asking when the model classifies the patient-type answer as ambiguous or contradictory", async () => {
@@ -72,6 +138,9 @@ test("keeps asking when the model classifies the patient-type answer as ambiguou
       if (callerText === "I want to book a cleaning") {
         return { intent: "BOOK_APPOINTMENT", toolRequest: { name: "BOOK_APPOINTMENT", arguments: {} } };
       }
+      if (callerText === "I'm the patient") {
+        return { intent: "BOOK_APPOINTMENT", callerAction: { bookingPatientSubjectChoice: "CALLER" } };
+      }
       return { intent: "BOOK_APPOINTMENT", callerAction: { patientTypeChoice: null } };
     }
   } });
@@ -82,10 +151,15 @@ test("keeps asking when the model classifies the patient-type answer as ambiguou
     }
   } });
 
-  await orchestrator.handleCallerText(session, "I want to book a cleaning", { recordCallerTurn: false });
+  const initial = await orchestrator.handleCallerText(session, "I want to book a cleaning", { recordCallerTurn: false });
+  const unclearSubject = await orchestrator.handleCallerText(session, "I've been to a dentist before, but I'm not sure what you mean", { recordCallerTurn: false });
+  const statusQuestion = await orchestrator.handleCallerText(session, "I'm the patient", { recordCallerTurn: false });
   const answer = await orchestrator.handleCallerText(session, "I've been to a dentist before, but I'm not sure what you mean", { recordCallerTurn: false });
   const contradiction = await orchestrator.handleCallerText(session, "I'm new, but I've been to this office before", { recordCallerTurn: false });
 
+  assert.match(initial.reply, /appointment for you or someone else/i);
+  assert.match(unclearSubject.reply, /appointment for you or someone else/i);
+  assert.match(statusQuestion.reply, /new to our office or have they visited before/i);
   assert.match(answer.reply, /new to our office or have they visited before/i);
   assert.match(contradiction.reply, /new to our office or have they visited before/i);
   assert.equal(session.awaitingBookingPatientChoice, true);
@@ -187,6 +261,90 @@ test("ends when the receptionist gives a terminal goodbye and the model marks th
 
   assert.equal(outcome.shouldEndSession, true);
   assert.equal(outcome.shouldTransferToStaff, false);
+});
+
+test("does not let a pending appointment confirmation override a terminal goodbye", async () => {
+  const sessions = new CallSessionStore();
+  const session = sessions.create({ callSid: "CA-confirm-goodbye", officeCode: "TEST" });
+  session.currentIntent = "CONFIRM_APPOINTMENT";
+  session.workflowState = {
+    contractVersion: 1,
+    workflow: "NEXT_APPOINTMENT",
+    state: "COMPLETED",
+    context: { selectedAppointmentId: 12 }
+  };
+  session.pendingActions.CONFIRM_APPOINTMENT = {
+    appointmentId: 12,
+    status: "AWAITING_CALLER_CONFIRMATION",
+    createdAt: new Date().toISOString(),
+    promptedAt: new Date().toISOString()
+  };
+  session.appointmentSelections.CONFIRM_APPOINTMENT = {
+    options: [{ appointmentId: 12, appointmentDate: "10/02/2026", source: {} }],
+    createdAt: new Date().toISOString()
+  };
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      return {
+        intent: "CONFIRM_APPOINTMENT",
+        callerAction: { speechAct: "DECLINE", requestedAction: "NONE" },
+        assistantAction: "END_CALL",
+        reply: "Thank you for letting me know. Have a great day!"
+      };
+    },
+    async continueWithPolicyInstruction() {
+      throw new Error("a terminal goodbye must not be replaced by a confirmation reprompt");
+    }
+  } });
+
+  const outcome = await orchestrator.handleCallerText(session, "No, everything else is fine. Thank you.", { recordCallerTurn: false });
+
+  assert.equal(outcome.shouldEndSession, true);
+  assert.equal(session.pendingActions.CONFIRM_APPOINTMENT, undefined);
+  assert.equal(session.appointmentSelections.CONFIRM_APPOINTMENT, undefined);
+});
+
+test("cancels pending appointment confirmation when the caller declines it", async () => {
+  const sessions = new CallSessionStore();
+  const session = sessions.create({ callSid: "CA-confirm-decline", officeCode: "TEST" });
+  session.currentIntent = "CONFIRM_APPOINTMENT";
+  session.workflowState = {
+    contractVersion: 1,
+    workflow: "NEXT_APPOINTMENT",
+    state: "COMPLETED",
+    context: { selectedAppointmentId: 12 }
+  };
+  session.pendingActions.CONFIRM_APPOINTMENT = {
+    appointmentId: 12,
+    status: "AWAITING_CALLER_CONFIRMATION",
+    createdAt: new Date().toISOString(),
+    promptedAt: new Date().toISOString()
+  };
+  session.appointmentSelections.CONFIRM_APPOINTMENT = {
+    options: [{ appointmentId: 12, appointmentDate: "10/02/2026", source: {} }],
+    createdAt: new Date().toISOString()
+  };
+  const orchestrator = new AiReceptionistOrchestrator(sessions);
+  Object.defineProperty(orchestrator, "modelClient", { value: {
+    async nextTurn() {
+      return {
+        intent: "CONFIRM_APPOINTMENT",
+        callerAction: { speechAct: "DECLINE", workflowIntent: "CONFIRM_APPOINTMENT", requestedAction: "NONE" },
+        reply: "Okay, I won't confirm the appointment. Is there anything else I can help with?"
+      };
+    },
+    async continueWithPolicyInstruction() {
+      throw new Error("a declined confirmation must not trigger another confirmation prompt");
+    }
+  } });
+
+  const outcome = await orchestrator.handleCallerText(session, "No, not required.", { recordCallerTurn: false });
+
+  assert.equal(outcome.shouldEndSession, false);
+  assert.equal(session.pendingActions.CONFIRM_APPOINTMENT, undefined);
+  assert.equal(session.appointmentSelections.CONFIRM_APPOINTMENT, undefined);
+  assert.match(outcome.reply, /won't confirm the appointment/i);
 });
 
 test("ends after the caller declines further help following the receptionist's closing question", async () => {

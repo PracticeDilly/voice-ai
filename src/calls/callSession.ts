@@ -104,6 +104,11 @@ export interface CallSession {
   pendingActions: PendingActions;
   pendingPatientWorkflow?: PendingPatientWorkflowAction;
   newPatientBookingCandidate?: boolean;
+  bookingPatientSubject?: "CALLER" | "SOMEONE_ELSE";
+  awaitingBookingPatientSubject?: boolean;
+  patientLookupPhone?: string;
+  awaitingBookingPatientPhone?: boolean;
+  familyPatientPhoneFallbackAttempted?: boolean;
   bookingPatientChoice?: "NEW_PATIENT" | "RETURNING_PATIENT";
   awaitingBookingPatientChoice?: boolean;
   lastBookingSearchRange?: { fromDate: string; toDate: string };

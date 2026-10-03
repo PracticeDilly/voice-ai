@@ -53,7 +53,14 @@ export function normalizeBookingArguments(
     copyKnownValue(normalized, "patientPhone", session.fromNumber);
   }
 
-  copyKnownValue(normalized, "fromNumber", normalized.fromNumber ?? session.fromNumber);
+  const lookupNumber = session.bookingPatientSubject === "SOMEONE_ELSE"
+    ? session.patientLookupPhone ?? session.fromNumber
+    : undefined;
+  copyKnownValue(normalized, "fromNumber", normalized.fromNumber ?? lookupNumber ?? session.fromNumber);
+  if (session.bookingPatientSubject === "SOMEONE_ELSE"
+    && session.bookingPatientChoice === "RETURNING_PATIENT") {
+    normalized.requireFirstNameMatch = true;
+  }
 
   const datePreference = normalizeBookingDatePreference(
     normalized.datePreference,

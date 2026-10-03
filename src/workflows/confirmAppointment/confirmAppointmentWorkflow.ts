@@ -99,6 +99,19 @@ function applyConfirmationExecutionBoundary(
     return undefined;
   }
 
+  // A caller may end the conversation while an appointment confirmation is
+  // pending. Do not let the pending confirmation boundary replace that action.
+  if (result.assistantAction === "END_CALL" && !result.toolRequest) {
+    clearPendingConfirmation(session);
+    return undefined;
+  }
+
+  if (session.pendingActions.CONFIRM_APPOINTMENT?.status === "AWAITING_CALLER_CONFIRMATION"
+    && result.callerAction?.speechAct === "DECLINE") {
+    clearPendingConfirmation(session);
+    return undefined;
+  }
+
   if (isTransferToStaff(result) && callerActionRequestsStaffTransfer(result)) {
     return undefined;
   }
@@ -206,6 +219,14 @@ function applyConfirmationExecutionBoundary(
   }
 
   return undefined;
+}
+
+function clearPendingConfirmation(session: CallSession): void {
+  delete session.pendingActions.CONFIRM_APPOINTMENT;
+  delete session.appointmentSelections.CONFIRM_APPOINTMENT;
+  delete session.collectedFields.callerConfirmedSelectedAppointment;
+  delete session.collectedFields.selectedAppointmentId;
+  delete session.collectedFields.selectedAppointmentDate;
 }
 
 function isConfirmIntent(intent: string | undefined): boolean {

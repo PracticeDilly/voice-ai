@@ -83,6 +83,19 @@ export function createBookAppointmentWorkflow(
 
     session.currentIntent = "BOOK_APPOINTMENT";
     session.collectedFields = { ...session.collectedFields, ...(result.collectedFields ?? {}) };
+    const patientSubject = result.callerAction?.bookingPatientSubjectChoice;
+    if (patientSubject === "CALLER" || patientSubject === "SOMEONE_ELSE") {
+      session.bookingPatientSubject = patientSubject;
+      session.awaitingBookingPatientSubject = false;
+    }
+    if (!session.bookingPatientSubject) {
+      session.awaitingBookingPatientSubject = true;
+      return {
+        reply: "Is the appointment for you or someone else?",
+        source: "booking-patient-subject-question"
+      };
+    }
+
     const choice = bookingPatientChoiceFromModel(result);
     if (choice === "NEW_PATIENT") {
       session.awaitingBookingPatientChoice = false;
@@ -104,6 +117,13 @@ export function createBookAppointmentWorkflow(
 
     session.awaitingBookingPatientChoice = false;
     session.bookingPatientChoice = choice;
+    if (session.bookingPatientSubject === "SOMEONE_ELSE") {
+      const patientPhone = suppliedPatientPhone(result);
+      if (patientPhone) {
+        session.patientLookupPhone = patientPhone;
+        session.collectedFields.patientPhone = patientPhone;
+      }
+    }
     return !session.collectedFields.firstName
       ? {
         reply: "What is the patient's first name so I can find the right record?",
@@ -341,6 +361,11 @@ export function createBookAppointmentWorkflow(
       : undefined;
   }
   };
+}
+
+function suppliedPatientPhone(result: ModelTurnResult): string | undefined {
+  const value = result.collectedFields?.patientPhone ?? result.toolRequest?.arguments?.patientPhone;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function isBookingIntent(intent: string | undefined): boolean {

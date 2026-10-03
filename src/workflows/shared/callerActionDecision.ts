@@ -26,6 +26,7 @@ export type RequestedAction =
   | "NONE";
 
 export type PatientTypeChoice = "NEW_PATIENT" | "RETURNING_PATIENT";
+export type BookingPatientSubjectChoice = "CALLER" | "SOMEONE_ELSE";
 
 export interface CallerActionAuthorization {
   stateChangingAction?: "CONFIRM_APPOINTMENT" | "BOOK_APPOINTMENT" | "CONTINUE_AS_NEW_PATIENT" | "TRANSFER_TO_STAFF" | null;
@@ -37,6 +38,7 @@ export interface CallerActionDecision {
   speechAct?: SpeechAct;
   workflowIntent?: WorkflowIntent;
   requestedAction?: RequestedAction;
+  bookingPatientSubjectChoice?: BookingPatientSubjectChoice | null;
   patientTypeChoice?: PatientTypeChoice | null;
   authorization?: CallerActionAuthorization;
 }

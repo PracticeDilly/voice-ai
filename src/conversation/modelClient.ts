@@ -21,6 +21,7 @@ const callerActionSchema = z.object({
   speechAct: z.enum(["QUESTION", "REQUEST", "AUTHORIZATION", "DECLINE", "CORRECTION", "ACKNOWLEDGEMENT", "GOODBYE", "UNKNOWN"]).optional(),
   workflowIntent: z.enum(["NEXT_APPOINTMENT", "CONFIRM_APPOINTMENT", "BOOK_APPOINTMENT", "TRANSFER_TO_STAFF", "OFFICE_INFORMATION", "UNKNOWN"]).optional(),
   requestedAction: z.enum(["LOOKUP_APPOINTMENTS", "CONFIRM_SELECTED_APPOINTMENT", "BOOK_APPOINTMENT", "TRANSFER_TO_STAFF", "NONE"]).optional(),
+  bookingPatientSubjectChoice: z.enum(["CALLER", "SOMEONE_ELSE"]).nullable().optional(),
   patientTypeChoice: z.enum(["NEW_PATIENT", "RETURNING_PATIENT"]).nullable().optional(),
   authorization: z.object({
     stateChangingAction: z.enum(["CONFIRM_APPOINTMENT", "BOOK_APPOINTMENT", "CONTINUE_AS_NEW_PATIENT", "TRANSFER_TO_STAFF"]).nullable().optional(),
@@ -74,6 +75,12 @@ const modelTurnResponseJsonSchema = {
         speechAct: { type: "string", enum: ["QUESTION", "REQUEST", "AUTHORIZATION", "DECLINE", "CORRECTION", "ACKNOWLEDGEMENT", "GOODBYE", "UNKNOWN"] },
         workflowIntent: { type: "string", enum: ["NEXT_APPOINTMENT", "CONFIRM_APPOINTMENT", "BOOK_APPOINTMENT", "TRANSFER_TO_STAFF", "OFFICE_INFORMATION", "UNKNOWN"] },
         requestedAction: { type: "string", enum: ["LOOKUP_APPOINTMENTS", "CONFIRM_SELECTED_APPOINTMENT", "BOOK_APPOINTMENT", "TRANSFER_TO_STAFF", "NONE"] },
+        bookingPatientSubjectChoice: {
+          anyOf: [
+            { type: "string", enum: ["CALLER", "SOMEONE_ELSE"] },
+            { type: "null" }
+          ]
+        },
         patientTypeChoice: { type: "string", enum: ["NEW_PATIENT", "RETURNING_PATIENT"] },
         authorization: {
           type: "object",

@@ -51,6 +51,114 @@ test("forces patient verification before a next-appointment lookup when the offi
   assert.equal(call.pendingPatientWorkflow, undefined);
 });
 
+test("uses the intended family member's registered phone for a returning booking verification", () => {
+  const call = session({
+    currentIntent: "BOOK_APPOINTMENT",
+    collectedFields: {
+      firstName: "Ella",
+      patientPhone: "+15552223333"
+    }
+  });
+  call.fromNumber = "+15550001111";
+  call.bookingPatientSubject = "SOMEONE_ELSE";
+  call.bookingPatientChoice = "RETURNING_PATIENT";
+  call.patientLookupPhone = "+15552223333";
+  call.officeContext = {
+    officeCode: "OFC001",
+    timezone: "America/Los_Angeles",
+    allowedActions: ["VERIFY_PATIENT", "BOOK_APPOINTMENT"]
+  };
+
+  const decision = applyWorkflowTurnPolicies(call, {
+    intent: "BOOK_APPOINTMENT",
+    toolRequest: { name: "BOOK_APPOINTMENT", arguments: {} }
+  });
+
+  assert.equal(decision?.overrideResult?.toolRequest?.name, "VERIFY_PATIENT");
+  assert.deepEqual(decision?.overrideResult?.toolRequest?.arguments, {
+    firstName: "Ella",
+    fromNumber: "+15552223333",
+    requireFirstNameMatch: true
+  });
+  assert.equal(call.pendingPatientWorkflow?.arguments.fromNumber, "+15552223333");
+  assert.equal(call.fromNumber, "+15550001111");
+});
+
+test("first checks the caller number for a returning family member before requesting an alternate number", () => {
+  const call = session({
+    currentIntent: "BOOK_APPOINTMENT",
+    collectedFields: { firstName: "Sarah", dob: "01/01/2000" }
+  });
+  call.fromNumber = "+15550001111";
+  call.bookingPatientSubject = "SOMEONE_ELSE";
+  call.bookingPatientChoice = "RETURNING_PATIENT";
+  call.officeContext = {
+    officeCode: "OFC001",
+    timezone: "America/Los_Angeles",
+    allowedActions: ["VERIFY_PATIENT", "BOOK_APPOINTMENT"]
+  };
+
+  const decision = applyWorkflowTurnPolicies(call, {
+    intent: "BOOK_APPOINTMENT",
+    toolRequest: { name: "BOOK_APPOINTMENT", arguments: {} }
+  });
+
+  assert.equal(decision?.overrideResult?.toolRequest?.name, "VERIFY_PATIENT");
+  assert.deepEqual(decision?.overrideResult?.toolRequest?.arguments, {
+    firstName: "Sarah",
+    dob: "01/01/2000",
+    fromNumber: "+15550001111",
+    requireFirstNameMatch: true
+  });
+});
+
+test("asks for a family member's registered number after no match, retries once, then offers staff", () => {
+  const call = session({
+    currentIntent: "BOOK_APPOINTMENT",
+    collectedFields: { firstName: "Sarah", dob: "01/01/2000" }
+  });
+  call.fromNumber = "+15550001111";
+  call.bookingPatientSubject = "SOMEONE_ELSE";
+  call.bookingPatientChoice = "RETURNING_PATIENT";
+  call.pendingPatientWorkflow = {
+    name: "BOOK_APPOINTMENT",
+    arguments: { firstName: "Sarah", dob: "01/01/2000", fromNumber: "+15550001111" },
+    createdAt: new Date().toISOString()
+  };
+  call.workflowState = {
+    contractVersion: 1,
+    workflow: "PATIENT_VERIFICATION",
+    state: "NEEDS_NEW_PATIENT_CONFIRMATION",
+    failureReason: "NO_EXISTING_PATIENT_RECORD",
+    allowedActions: ["BOOK_APPOINTMENT", "TRANSFER_TO_STAFF"]
+  };
+
+  const noMatch = applyWorkflowToolResultPolicies(call, "VERIFY_PATIENT", { ok: true });
+  assert.match(noMatch?.overrideResult?.reply ?? "", /phone number is registered/i);
+  assert.equal(call.awaitingBookingPatientPhone, true);
+
+  const retry = applyWorkflowTurnPolicies(call, {
+    intent: "BOOK_APPOINTMENT",
+    collectedFields: { patientPhone: "+15552223333" }
+  });
+  assert.equal(retry?.overrideResult?.toolRequest?.name, "VERIFY_PATIENT");
+  assert.equal(retry?.overrideResult?.toolRequest?.arguments?.fromNumber, "+15552223333");
+  assert.equal(retry?.overrideResult?.toolRequest?.arguments?.requireFirstNameMatch, true);
+  assert.equal(call.pendingPatientWorkflow?.arguments.fromNumber, "+15552223333");
+  assert.equal(call.awaitingBookingPatientPhone, false);
+
+  call.workflowState = {
+    contractVersion: 1,
+    workflow: "PATIENT_VERIFICATION",
+    state: "NEEDS_NEW_PATIENT_CONFIRMATION",
+    failureReason: "NO_EXISTING_PATIENT_RECORD",
+    allowedActions: ["BOOK_APPOINTMENT", "TRANSFER_TO_STAFF"]
+  };
+  const secondNoMatch = applyWorkflowToolResultPolicies(call, "VERIFY_PATIENT", { ok: true });
+  assert.equal(secondNoMatch?.overrideResult?.assistantAction, "OFFER_STAFF_TRANSFER");
+  assert.match(secondNoMatch?.overrideResult?.reply ?? "", /connect you with our office staff/i);
+});
+
 test("replays the active next-appointment lookup after direct patient verification", () => {
   const call = session({
     currentIntent: "NEXT_APPOINTMENT",

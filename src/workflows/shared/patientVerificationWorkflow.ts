@@ -36,7 +36,8 @@ const patientVerificationToolAdapter: WorkflowToolAdapter = {
           ? { firstName: textValue(tool.arguments?.firstName ?? session.collectedFields.firstName) } : {}),
         ...(textValue(tool.arguments?.dob ?? session.collectedFields.dob)
           ? { dob: textValue(tool.arguments?.dob ?? session.collectedFields.dob) } : {}),
-        ...(textValue(session.fromNumber) ? { fromNumber: textValue(session.fromNumber) } : {}),
+        ...(patientLookupNumber(session) ? { fromNumber: patientLookupNumber(session) } : {}),
+        ...(isFamilyReturningBooking(session) ? { requireFirstNameMatch: true } : {}),
         ...(tool.arguments?.continueAsNewPatient === true ? { continueAsNewPatient: true } : {})
       }
     };
@@ -76,6 +77,11 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
   },
 
   applyTurnPolicy(session: CallSession, result: ModelTurnResult): ToolPolicyDecision | undefined {
+    const familyPhoneRetry = familyPatientPhoneRetryDecision(session, result);
+    if (familyPhoneRetry) {
+      return familyPhoneRetry;
+    }
+
     if (isBookingIntent(session.currentIntent)
       && callerActionExplicitlyAuthorizesNewPatient(result)
       && isNewPatientBookingTransitionState(session)) {
@@ -88,6 +94,23 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
     }
 
     const requestedTool = result.toolRequest;
+    if (requestedTool
+      && patientSpecificTools.has(requestedTool.name)
+      && isFamilyReturningBooking(session)
+      && !textValue(requestedTool.arguments?.firstName
+        ?? result.collectedFields?.firstName
+        ?? session.collectedFields.firstName)) {
+      return {
+        overrideResult: {
+          ...result,
+          intent: "BOOK_APPOINTMENT",
+          reply: "What is the patient's first name so I can find the right record?",
+          callerAction: undefined,
+          toolRequest: undefined,
+          shouldEndCall: false
+        }
+      };
+    }
     if (!requestedTool) {
       if (isUnauthorizedTransfer(session, result)) {
         return transferConfirmationDecision(session);
@@ -116,6 +139,9 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
       }
       if (isNewPatientConfirmationState(session)
         && isBookingIntent(session.currentIntent)
+        && !(isFamilyReturningBooking(session)
+          && session.familyPatientPhoneFallbackAttempted
+          && textValue(session.patientLookupPhone))
         && !callerActionExplicitlyAuthorizesNewPatient(result)) {
         return newPatientConfirmationDecision();
       }
@@ -151,7 +177,19 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
       return newPatientConfirmationDecision();
     }
 
-    session.pendingPatientWorkflow = pendingAction(requestedTool);
+    const pendingRequest = isFamilyReturningBooking(session)
+      && requestedTool.name === "BOOK_APPOINTMENT"
+      ? {
+        ...requestedTool,
+        arguments: {
+          ...identityArguments(session, result),
+          ...requestedTool.arguments,
+          ...(patientLookupNumber(session) ? { fromNumber: patientLookupNumber(session) } : {}),
+          requireFirstNameMatch: true
+        }
+      }
+      : requestedTool;
+    session.pendingPatientWorkflow = pendingAction(pendingRequest);
     return {
       overrideResult: {
         ...result,
@@ -192,6 +230,34 @@ export const patientVerificationWorkflow: ConversationWorkflow = {
         if (typeof value === "string" && value.trim()) {
           session.collectedFields[field] = value.trim();
         }
+      }
+    }
+
+    if (isFamilyReturningBooking(session) && isFamilyPhoneFallbackFailure(session)) {
+      if (!session.familyPatientPhoneFallbackAttempted) {
+        session.familyPatientPhoneFallbackAttempted = true;
+        session.awaitingBookingPatientPhone = true;
+        return {
+          overrideResult: {
+            intent: "BOOK_APPOINTMENT",
+            reply: "I couldn't find that patient's record using this number. What phone number is registered to their record?",
+            shouldEndCall: false,
+            toolRequest: undefined
+          }
+        };
+      }
+
+      if (session.workflowState?.failureReason === "NO_EXISTING_PATIENT_RECORD"
+        || session.workflowState?.failureReason === "PHONE_NO_MATCH") {
+        return {
+          overrideResult: {
+            intent: "BOOK_APPOINTMENT",
+            reply: "I still couldn't find that patient's record. Would you like me to connect you with our office staff?",
+            assistantAction: "OFFER_STAFF_TRANSFER",
+            shouldEndCall: false,
+            toolRequest: undefined
+          }
+        };
       }
     }
 
@@ -265,6 +331,64 @@ function verificationRequiredFieldPrompt(session: CallSession, result: ModelTurn
   return `To continue, may I have your ${requiredField}, please?`;
 }
 
+function familyPatientPhoneRetryDecision(
+  session: CallSession,
+  result: ModelTurnResult
+): ToolPolicyDecision | undefined {
+  if (!session.awaitingBookingPatientPhone || !isFamilyReturningBooking(session)) {
+    return undefined;
+  }
+
+  const phone = textValue(result.collectedFields?.patientPhone)
+    ?? textValue(result.toolRequest?.arguments?.patientPhone);
+  if (!phone) {
+    return {
+      overrideResult: {
+        ...result,
+        intent: "BOOK_APPOINTMENT",
+        reply: "What phone number is registered to their record?",
+        callerAction: undefined,
+        toolRequest: undefined,
+        shouldEndCall: false
+      }
+    };
+  }
+
+  session.patientLookupPhone = phone;
+  session.collectedFields.patientPhone = phone;
+  session.awaitingBookingPatientPhone = false;
+  if (session.pendingPatientWorkflow) {
+    session.pendingPatientWorkflow.arguments.fromNumber = phone;
+    session.pendingPatientWorkflow.arguments.patientPhone = phone;
+  }
+
+  return {
+    overrideResult: {
+      intent: "BOOK_APPOINTMENT",
+      reply: "Thanks. I'll check that number.",
+      shouldEndCall: false,
+      toolRequest: {
+        name: verificationToolName,
+        arguments: identityArguments(session, result)
+      }
+    }
+  };
+}
+
+function isFamilyReturningBooking(session: CallSession): boolean {
+  return session.bookingPatientSubject === "SOMEONE_ELSE"
+    && session.bookingPatientChoice === "RETURNING_PATIENT"
+    && isBookingIntent(session.currentIntent);
+}
+
+function isFamilyPhoneFallbackFailure(session: CallSession): boolean {
+  return session.workflowState?.workflow === "PATIENT_VERIFICATION"
+    && ((session.workflowState.state === "NEEDS_NEW_PATIENT_CONFIRMATION"
+      && ["NO_EXISTING_PATIENT_RECORD", "PHONE_NO_MATCH"].includes(session.workflowState.failureReason ?? ""))
+      || (session.workflowState.state === "FAILED"
+        && session.workflowState.failureReason === "FIRST_NAME_NO_MATCH"));
+}
+
 function hasCapturedRequiredField(
   session: CallSession,
   result: ModelTurnResult,
@@ -329,7 +453,8 @@ function inferPendingPatientWorkflow(session: CallSession, result: ModelTurnResu
       arguments: {
         ...session.collectedFields,
         ...(result.collectedFields ?? {}),
-        ...(textValue(session.fromNumber) ? { fromNumber: textValue(session.fromNumber) } : {})
+        ...(patientLookupNumber(session) ? { fromNumber: patientLookupNumber(session) } : {}),
+        ...(isFamilyReturningBooking(session) ? { requireFirstNameMatch: true } : {})
       }
     };
   }
@@ -357,7 +482,8 @@ function identityArguments(session: CallSession, result: ModelTurnResult): Recor
   return {
     ...(textValue(fields.firstName) ? { firstName: textValue(fields.firstName) } : {}),
     ...(textValue(fields.dob) ? { dob: textValue(fields.dob) } : {}),
-    ...(textValue(session.fromNumber) ? { fromNumber: textValue(session.fromNumber) } : {})
+    ...(patientLookupNumber(session) ? { fromNumber: patientLookupNumber(session) } : {}),
+    ...(isFamilyReturningBooking(session) ? { requireFirstNameMatch: true } : {})
   };
 }
 
@@ -618,8 +744,14 @@ function normalizedIntent(value: string | undefined): string | undefined {
 
 function identityFingerprint(session: CallSession): string {
   return JSON.stringify({
-    fromNumber: textValue(session.fromNumber) ?? "",
+    fromNumber: patientLookupNumber(session) ?? "",
     firstName: textValue(session.collectedFields.firstName) ?? "",
     dob: textValue(session.collectedFields.dob) ?? ""
   });
+}
+
+function patientLookupNumber(session: CallSession): string | undefined {
+  return session.bookingPatientSubject === "SOMEONE_ELSE"
+    ? textValue(session.patientLookupPhone) ?? textValue(session.fromNumber)
+    : textValue(session.fromNumber);
 }

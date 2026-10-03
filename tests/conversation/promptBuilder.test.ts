@@ -13,6 +13,8 @@ test("builds a compact workflow-oriented prompt", () => {
   assert.match(prompt, /Tool contracts:/);
   assert.match(prompt, /BOOK_APPOINTMENT tool guidance:/);
   assert.match(prompt, /callerAction\.patientTypeChoice as NEW_PATIENT or RETURNING_PATIENT/i);
+  assert.match(prompt, /callerAction\.bookingPatientSubjectChoice may be CALLER, SOMEONE_ELSE, or null/i);
+  assert.match(prompt, /Booking: identify caller vs other/i);
   assert.match(prompt, /Field lists: string arrays; empty means \[\]/i);
   assert.match(prompt, /No tool call: toolRequest \{\}; otherwise include name and arguments/i);
   assert.match(prompt, /END_CALL only for a terminal farewell.*Workflow completion alone never ends a call/i);
